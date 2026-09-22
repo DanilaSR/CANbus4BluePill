@@ -46,10 +46,15 @@ def main() -> int:
         up = int(hb["uptime"])
         node = meta.get("source_node_id", "?")
         tid = meta.get("transfer_id")
-        arrival = time.time()
+        # Prefer yakut's host-wall-clock metadata: identical behavior for live
+        # pipes and offline log replays (with time.time() a fast replay shows
+        # every frame at +0.0s, which is meaningless).
+        ts = meta.get("ts_system")
+        arrival = float(ts) if isinstance(ts, (int, float)) else time.time()
         n_hb += 1
 
         if prev_arrival_wall is None:
+            t_start = arrival
             first = f"stream start: node={node} uptime={up}s tid={tid}"
             print(first, flush=True)
         else:
@@ -70,6 +75,15 @@ def main() -> int:
                 # uptime jumped forward faster than wall time: impossible normally
                 print(f"!!! anomaly: uptime jumped {prev_up} -> {up} in {delta:.2f}s",
                       flush=True)
+            elif up < prev_up:
+                # Quick reboot that produced no long gap (e.g. debugger NRST that
+                # reboots the node cleanly within a heartbeat period).
+                n_reset += 1
+                print(
+                    f"!!! RESET: uptime rolled back {prev_up} -> {up} "
+                    f"(tid {prev_tid} -> {tid})",
+                    flush=True,
+                )
             if (
                 prev_tid is not None
                 and up == prev_up
@@ -90,8 +104,8 @@ def main() -> int:
         prev_up = up
         prev_tid = tid
 
-    # EOF summary.
-    total = time.time() - t_start
+    # EOF summary (stream duration = last frame arrival - first frame arrival).
+    total = max(0.0, arrival - t_start)
     expected = int(total / HB_NOMINAL_PERIOD)
     loss = max(0, expected - n_hb)
     print(
