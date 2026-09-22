@@ -4,12 +4,14 @@
 Frame format (as emitted by sketch_slcan.ino):
     T<8x CAN-ID><hex DLC><2x per byte payload><CR>
 
-CAN ID layout (canard_publish_16b, UAVCAN v1.1 16-bit subject):
+CAN ID layout (canard_publish_13b, Cyphal v1.0 13-bit subject):
     bits [28:26] priority
-    bit    [25]  SSP (service) flag
-    bit    [24]  reserved 0
-    bits  [23:8] subject_id
-    bit     [7]  reserved 1 (discriminator)
+    bit    [25]  service_not_message = 0
+    bit    [24]  anonymous = 0
+    bit    [23]  0
+    bits  [22:21] 11 (v1.0 subject-length discriminator)
+    bits  [20:8] subject_id[13]
+    bit     [7]  0
     bits   [6:0] source_node_id
 
 Heartbeat.1.0 payload (7 bytes + 1 CANard tail byte):
@@ -64,7 +66,7 @@ def decode_frame(line: str) -> bytes:
 
 def print_heartbeat(ident: int, data: bytes) -> None:
     prio = (ident >> 26) & 0x7
-    subject = (ident >> 8) & 0xFFFF
+    subject = (ident >> 8) & 0x1FFF  # Cyphal v1.0: 13-bit subject in bits [20:8]
     node = ident & 0x7F
 
     if subject != SUBJECT_HEARTBEAT or len(data) < 8:
@@ -120,7 +122,7 @@ def main() -> int:
                 continue
             ident, data = decoded
             n_frame += 1
-            subject = (ident >> 8) & 0xFFFF
+            subject = (ident >> 8) & 0x1FFF  # Cyphal v1.0: 13-bit subject in bits [20:8]
             if subject == SUBJECT_HEARTBEAT:
                 n_hb += 1
                 print_heartbeat(ident, data)

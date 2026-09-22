@@ -272,7 +272,23 @@ int main(void) {
             .bytes = {.size = sz, .data = buf},
             .next  = NULL,
         };
-        (void)canard_publish_16b(&canard_inst, now + 5000000, 1U, canard_prio_fast,
+        /*
+         * Cyphal v1.0 CAN ID layout via canard_publish_13b():
+         *   bits [28:26] priority
+         *   bit    [25]  service_not_message = 0
+         *   bit    [24]  anonymous = 0
+         *   bit    [23]  0
+         *   bits  [22:21] 11  (v1.0 subject-length discriminator)
+         *   bits  [20:8] subject_id[13]
+         *   bit     [7]  0
+         *   bits   [6:0] source_node_id
+         * NB: we deliberately do NOT use canard_publish_16b() (Cyphal v1.1,
+         * bit 7 = 1): the current Python-side tooling (pycyphal 1.27.x,
+         * yakut 0.14.x) implements only the v1.0 CAN layout and rejects
+         * v1.1 frames ("wrong protocol"). Subject 7509 fits in 13 bits, so
+         * v1.0 is fully sufficient for the heartbeat.
+         */
+        (void)canard_publish_13b(&canard_inst, now + 5000000, 1U, canard_prio_fast,
                                  SUBJECT_HEARTBEAT, hb_transfer_id++, chain, NULL);
       }
       last_hb_us = now;
