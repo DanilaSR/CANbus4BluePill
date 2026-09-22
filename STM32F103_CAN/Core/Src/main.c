@@ -11,6 +11,7 @@
 CAN_HandleTypeDef hcan1;
 
 static canard_t             canard_inst;
+#define CANARD_NODE_ID 55U /* fixed local node ID (Cyphal 7-bit, 1..127) */
 static const uint16_t       SUBJECT_HEARTBEAT = 7509U;
 static uint8_t                    hb_transfer_id;
 static uint32_t                   hb_uptime_sec;
@@ -18,7 +19,6 @@ static canard_us_t                last_hb_us;
 
 static uint32_t                   can_rx_count;
 static uint32_t                   can_tx_count;
-static volatile uint32_t          can_mailbox_ready = 1;
 
 /* ---------------------------------------------------------
  * Bare-metal heap for newlib malloc/free (CANard memory).
@@ -69,7 +69,6 @@ static bool canard_tx_cb(canard_t* self,
     return false; /* no free mailbox -> retry on next poll() */
   }
   can_tx_count++;
-  can_mailbox_ready = 0; /* a TX mailbox will free up on TX-complete IRQ */
   return true;
 }
 
@@ -155,10 +154,9 @@ static void MX_CAN1_Init(void) {
 
 void HAL_CAN_MspInit(CAN_HandleTypeDef* hcan) {
   if (hcan->Instance == CAN1) {
-    /* HAL_CAN_ActivateNotification only sets the peripheral IER bits;
-       the NVIC lines must be enabled here. */
-    HAL_NVIC_SetPriority(USB_HP_CAN1_TX_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(USB_HP_CAN1_TX_IRQn);
+    /* RX FIFO0 IRQ drives CanardRxCallback(). No TX IRQ is needed: with
+       NART one-shot the mailbox frees itself (ACKed or not), and TX is
+       polled from the main loop via canard_poll(). */
     HAL_NVIC_SetPriority(USB_LP_CAN1_RX0_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USB_LP_CAN1_RX0_IRQn);
   }
@@ -216,8 +214,6 @@ void CanardRxCallback(void) {
   }
 }
 
-void CanardTxIrqCallback(void) { can_mailbox_ready = 1; }
-
 /* ---------------------------------------------------------
  * main
  * --------------------------------------------------------- */
@@ -244,11 +240,16 @@ int main(void) {
   }
   canard_inst.tx.fd = false; /* STM32F103 bxCAN: Classic CAN only */
 
+  /* Fix the node ID: by default canard_new() draws it randomly from the PRNG
+     seed each boot (seed is XORed with the instance address), which makes the
+     source node-ID change between boots. A heartbeat publisher needs a stable
+     ID so other nodes can find it. */
+  (void)canard_set_node_id(&canard_inst, CANARD_NODE_ID);
+
   if (HAL_CAN_Start(&hcan1) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_CAN_ActivateNotification(&hcan1,
-                                   CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_TX_MAILBOX_EMPTY) != HAL_OK) {
+  if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
     Error_Handler();
   }
 
@@ -278,18 +279,12 @@ int main(void) {
       HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
     }
 
-    /* Drain the TX pipeline. iface 0 is "ready" unless a mailbox is occupied;
-     * canard_tx_cb() returns false then and the library retries next poll. */
-    if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) == 0U) {
-      /* A one-shot (NART) frame was never acknowledged: the mailbox stays
-         full and no TX-complete IRQ will ever release it. Abort it and let
-         CANard retry the same transfer one second later. */
-      (void)HAL_CAN_AbortTxRequest(&hcan1, CAN_TX_MAILBOX0);
-      (void)HAL_CAN_AbortTxRequest(&hcan1, CAN_TX_MAILBOX1);
-      (void)HAL_CAN_AbortTxRequest(&hcan1, CAN_TX_MAILBOX2);
-      can_mailbox_ready = 1;
-    }
-    canard_poll(&canard_inst, can_mailbox_ready ? 1U : 0U);
+    /* Drain the TX pipeline. iface 0 is always "ready": with NART=1 every
+     * one-shot frame frees its mailbox on its own (ACKed or not), so a failed
+     * attempt can never wedge TX. canard_tx_cb() returns false only while all
+     * three mailboxes are momentarily busy, and libcanard retries the same
+     * frame on the next canard_poll() (see tx_eject_pending). */
+    canard_poll(&canard_inst, 1U);
   }
 }
 

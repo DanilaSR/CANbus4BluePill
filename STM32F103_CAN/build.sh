@@ -40,7 +40,7 @@ DEFS="-DUSE_HAL_DRIVER -DSTM32F103xB"
 INCLUDES=(
     "-I${PROJECT_DIR}/Core/Inc"
     "-I${PROJECT_DIR}/lib"
-    "-I${PROJECT_DIR}/uavcan/DSDLtypes"
+    "-I${PROJECT_DIR}/DSDLtypes"
     "-I${PROJECT_DIR}/Drivers/STM32F1xx_HAL_Driver/Inc"
     "-I${PROJECT_DIR}/Drivers/CMSIS/Device/ST/STM32F1xx/Include"
     "-I${PROJECT_DIR}/Drivers/CMSIS/Include"

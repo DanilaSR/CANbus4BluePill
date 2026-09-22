@@ -5,7 +5,6 @@ extern CAN_HandleTypeDef hcan1;
 
 /* CAN1 interrupt handlers. The callbacks dispatch into libcanard (main.c). */
 void CanardRxCallback(void);
-void CanardTxIrqCallback(void);
 
 void USB_HP_CAN1_TX_IRQHandler(void) { HAL_CAN_IRQHandler(&hcan1); }
 
@@ -19,23 +18,5 @@ void CAN1_SCE_IRQHandler(void) { HAL_CAN_IRQHandler(&hcan1); }
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
   if (hcan->Instance == CAN1) {
     CanardRxCallback();
-  }
-}
-
-void HAL_CAN_TxMailbox0CompleteCallback(CAN_HandleTypeDef* hcan) {
-  if (hcan->Instance == CAN1) {
-    CanardTxIrqCallback();
-  }
-}
-
-void HAL_CAN_TxMailbox1CompleteCallback(CAN_HandleTypeDef* hcan) {
-  if (hcan->Instance == CAN1) {
-    CanardTxIrqCallback();
-  }
-}
-
-void HAL_CAN_TxMailbox2CompleteCallback(CAN_HandleTypeDef* hcan) {
-  if (hcan->Instance == CAN1) {
-    CanardTxIrqCallback();
   }
 }
