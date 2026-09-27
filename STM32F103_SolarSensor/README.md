@@ -8,13 +8,20 @@ own ID so `make getinfo`/`make tshark` target it directly.
 | Type | Subject | Rate |
 |---|---|---|
 | `uavcan.node.Heartbeat.1.0` | 7509 | 1 Hz (priority `fast`) |
-| `uavcan.si.sample.luminance.Scalar.1.0` | 7510 | 1 Hz (priority `nominal`) |
+| `uavcan.si.sample.angle.Scalar.1.0` (α) | 7510 | 1 Hz (priority `nominal`) |
+| `uavcan.si.sample.angle.Scalar.1.0` (β) | 7515 | 1 Hz (priority `nominal`) |
 
 - **Node ID:** 51 (fixed, see `CANARD_NODE_ID` in `Core/Src/main.c`)
 
-- `candela_per_square_meter` is a drifting placeholder (500..549 cd/m²) --
-  no light sensor is wired to this board; replace the marked line in
-  `Core/Src/main.c` with a real photodiode/TSL2591 readout.
+- The solar sensor returns two sun aspect angles, **alpha** (subject 7510)
+  and **beta** (subject 7515), both `uavcan.si.sample.angle.Scalar.1.0`
+  (`radian`, float32), serialized back-to-back from the same 1 Hz sample.
+  The standard DSDL has no `angle.Vector2`, hence two Scalar subjects --
+  subscribe to both to get the pair.
+- `radian` is a synthetic placeholder: a sawtooth drift within ±60° (a
+  typical coarse sun sensor field of view), alpha and beta on different
+  periods. No solar sensor is wired to this board; replace the marked block
+  in `Core/Src/main.c` with a real photodiode/ADC readout.
 - The sample `timestamp` stays 0: this demo has no network time sync.
 
 All types are standard Cyphal DSDL: the C headers ship with the template's
@@ -28,5 +35,5 @@ without extra setup.
 make flash                  # ST-Link (SWD_FREQ=100 kHz by default)
 make wireshark              # slcand + Wireshark with the Cyphal dissector
 make tshark FILTER=         # live decode on the console
-source ./yakut-env.sh && yakut sub 7510:uavcan.si.sample.luminance.Scalar.1.0 +M
+source ./yakut-env.sh && yakut sub 7510:uavcan.si.sample.angle.Scalar.1.0 7515:uavcan.si.sample.angle.Scalar.1.0 +M
 ```

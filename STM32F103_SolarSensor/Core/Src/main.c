@@ -1,4 +1,6 @@
-/* Solar sensor unit (spacecraft unit 1/6) -- node-ID 51, Heartbeat.1.0 (7509) + si.sample.luminance.Scalar.1.0 (7510).
+/* Solar sensor unit (spacecraft unit 1/6) -- node-ID 51, Heartbeat.1.0 (7509) +
+ * si.sample.angle.Scalar.1.0 (7510 = alpha, 7515 = beta: the two sun aspect
+ * angles, published back-to-back from the same sample).
  * Derived from the STM32F103_CAN template.
  */
 
@@ -6,7 +8,7 @@
 
 #include <canard.h>
 #include <uavcan/node/Heartbeat_1_0.h>
-#include <uavcan/si/sample/luminance/Scalar_1_0.h>
+#include <uavcan/si/sample/angle/Scalar_1_0.h>
 
 #include <errno.h>
 #include <stdio.h>
@@ -21,8 +23,10 @@ static const uint16_t       SUBJECT_HEARTBEAT = 7509U;
 static uint8_t                    hb_transfer_id;
 static uint32_t                   hb_uptime_sec;
 static canard_us_t                last_hb_us;
-static const uint16_t       SUBJECT_SOLAR = 7510U;
-static uint8_t                    data_transfer_id;
+static const uint16_t       SUBJECT_SOLAR_ALPHA = 7510U;
+static const uint16_t       SUBJECT_SOLAR_BETA  = 7515U;
+static uint8_t                    data_alpha_tid;
+static uint8_t                    data_beta_tid;
 static uint32_t                   data_seq;
 static canard_us_t                last_data_us;
 
@@ -304,26 +308,43 @@ int main(void) {
       HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
     }
 
-    /* Publish uavcan.si.sample.luminance.Scalar.1.0 on subject 7510 at 1 Hz.
-     * No light sensor is attached to this board: the value below is a drifting
-     * placeholder -- replace it with a real photodiode/TSL2591 readout.
-     * Sample timestamp stays 0 (no network time sync in this demo). */
+    /* Publish the two sun aspect angles as uavcan.si.sample.angle.Scalar.1.0
+     * on subjects 7510 (alpha) and 7515 (beta) at 1 Hz, serialized back-to-
+     * back from the same sample. No solar sensor is attached to this board:
+     * the values below are a synthetic sawtooth drift within +/-60 deg (a
+     * typical coarse sun sensor field of view), alpha and beta on different
+     * periods so the two traces look independent -- replace with a real
+     * photodiode/ADC readout. Sample timestamps stay 0 (no network time
+     * sync in this demo). */
     if ((now - last_data_us) >= 1000000U) {
-      uavcan_si_sample_luminance_Scalar_1_0 solar = {0};
-      solar.candela_per_square_meter = 500.0f + (float)(data_seq % 50);
+      const float fov = 1.0471975512f; /* +/-(60 deg) in radians */
+
+      uavcan_si_sample_angle_Scalar_1_0 alpha = {0};
+      alpha.radian = fov * ((float)(data_seq % 60) / 60.0f - 0.5f) * 2.0f;
+
+      uavcan_si_sample_angle_Scalar_1_0 beta = {0};
+      beta.radian = fov * ((float)(data_seq % 45) / 45.0f - 0.5f) * 2.0f;
       data_seq++;
 
-      uint8_t      buf[32];
-      size_t       sz = sizeof(buf);
-      const int8_t err =
-          uavcan_si_sample_luminance_Scalar_1_0_serialize_(&solar, buf, &sz);
-      if (err >= 0) {
+      uint8_t buf[32];
+      size_t  sz = sizeof(buf);
+      if (uavcan_si_sample_angle_Scalar_1_0_serialize_(&alpha, buf, &sz) >= 0) {
         const canard_bytes_chain_t chain = {
             .bytes = {.size = sz, .data = buf},
             .next  = NULL,
         };
         (void)canard_publish_13b(&canard_inst, now + 5000000, 1U, canard_prio_nominal,
-                                 SUBJECT_SOLAR, data_transfer_id++, chain, NULL);
+                                 SUBJECT_SOLAR_ALPHA, data_alpha_tid++, chain, NULL);
+      }
+
+      sz = sizeof(buf);
+      if (uavcan_si_sample_angle_Scalar_1_0_serialize_(&beta, buf, &sz) >= 0) {
+        const canard_bytes_chain_t chain = {
+            .bytes = {.size = sz, .data = buf},
+            .next  = NULL,
+        };
+        (void)canard_publish_13b(&canard_inst, now + 5000000, 1U, canard_prio_nominal,
+                                 SUBJECT_SOLAR_BETA, data_beta_tid++, chain, NULL);
       }
       last_data_us = now;
     }

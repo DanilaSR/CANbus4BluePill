@@ -12,7 +12,7 @@ additionally publish their own DSDL type:
 
 | Unit | Project | Node ID | Data subject | DSDL type | Rate |
 |---|---|---|---|---|---|
-| Solar sensor | `STM32F103_SolarSensor` | 51 | 7510 | `uavcan.si.sample.luminance.Scalar.1.0` | 1 Hz |
+| Solar sensor | `STM32F103_SolarSensor` | 51 | 7510 (α), 7515 (β) | `uavcan.si.sample.angle.Scalar.1.0` | 1 Hz |
 | IMU | `STM32F103_IMU_CAN` | 52 | 7511, 7512 | `uavcan.si.sample.angular_velocity.Vector3.1.0`, `uavcan.si.sample.acceleration.Vector3.1.0` | 10 Hz |
 | Flywheel | `STM32F103_Flywheel` | 53 | — | (heartbeat only) | — |
 | Coil | `STM32F103_Coil` | 54 | — | (heartbeat only) | — |
