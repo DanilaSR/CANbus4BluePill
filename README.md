@@ -28,9 +28,15 @@ Notes:
 - The sensor payloads are drifting placeholders — no sensor ICs are wired to
   the boards; replace the marked lines in each `Core/Src/main.c` with real
   driver readouts. Sample timestamps stay 0 (no network time sync yet).
+  **Exception:** `STM32F103_TemperatureSensor` merged the real STLM75 (I²C)
+  driver from `STM32DISC_TEMP` (now removed) — it publishes real readings
+  when a sensor is wired to PB6/PB7, and heartbeat-only (no subject 7514)
+  until then. It also keeps `STM32DISC_TEMP`'s Flipper Zero ASCII bridge on
+  USART2 (PA2/PA3).
 - Node 55 was the template's original ID; the template is superseded by these
   units (a single BluePill runs one unit at a time), so there is no collision.
-- Node 56 (`STM32F103_TemperatureSensor`) was build-flashed-verified
-  end-to-end: heartbeat + subject 7514 decode cleanly in yakut and Wireshark.
+- `STM32F103_TemperatureSensor` (node 56) was build-flashed-verified on
+  hardware: heartbeat + subject 7514 decode cleanly in yakut and Wireshark;
+  after the STLM75 merge the heartbeat-only no-sensor mode was re-verified.
 - `STM32F103_IMU_CAN` avoids a name clash with the pre-existing
   `STM32F103_IMU` (standalone MPU-9250 + OLED project).

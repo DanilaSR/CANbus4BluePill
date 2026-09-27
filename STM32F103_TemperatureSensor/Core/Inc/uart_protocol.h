@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#include "stm32l1xx_hal.h"
+#include "stm32f1xx_hal.h"
 #include <stdint.h>
 
 #define UART_PROTOCOL_RXBUF_SIZE    16U

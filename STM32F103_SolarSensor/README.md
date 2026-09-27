@@ -28,5 +28,5 @@ without extra setup.
 make flash                  # ST-Link (SWD_FREQ=100 kHz by default)
 make wireshark              # slcand + Wireshark with the Cyphal dissector
 make tshark FILTER=         # live decode on the console
-source ./yakut-env.sh && yakut sub uavcan.si.sample.luminance.Scalar.1.0 +M
+source ./yakut-env.sh && yakut sub 7510:uavcan.si.sample.luminance.Scalar.1.0 +M
 ```

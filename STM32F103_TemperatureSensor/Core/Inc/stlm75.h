@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-#include "stm32l1xx_hal.h"
+#include "stm32f1xx_hal.h"
 
 /* STLM75 registers */
 #define STLM75_REG_TEMP       0x00U   /* Temperature register (read)      */

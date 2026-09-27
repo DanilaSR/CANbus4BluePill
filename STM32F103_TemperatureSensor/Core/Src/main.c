@@ -1,8 +1,13 @@
-/* Temperature sensor unit (spacecraft unit 6/6) -- node-ID 56, Heartbeat.1.0 (7509) + si.sample.temperature.Scalar.1.0 (7514).
- * Derived from the STM32F103_CAN template.
+/* Temperature sensor unit (spacecraft unit 6/6) -- node-ID 56, Heartbeat.1.0 (7509)
+ * + si.sample.temperature.Scalar.1.0 (7514).
+ * Merged from the STM32F103_CAN template and STM32DISC_TEMP: reads an STLM75 over
+ * I2C1 and reports it both as a Cyphal sample (subject 7514) and as ASCII over
+ * USART2 to a Flipper Zero (TEMP:/PING/READ protocol).
  */
 
 #include "main.h"
+#include "stlm75.h"
+#include "uart_protocol.h"
 
 #include <canard.h>
 #include <uavcan/node/Heartbeat_1_0.h>
@@ -14,6 +19,8 @@
 #include <sys/types.h>
 
 CAN_HandleTypeDef hcan1;
+I2C_HandleTypeDef hi2c1;
+UART_HandleTypeDef huart2;
 
 static canard_t             canard_inst;
 #define CANARD_NODE_ID 56U /* fixed local node ID (Cyphal 7-bit, 1..127) */
@@ -23,7 +30,6 @@ static uint32_t                   hb_uptime_sec;
 static canard_us_t                last_hb_us;
 static const uint16_t       SUBJECT_TEMPERATURE = 7514U;
 static uint8_t                    data_transfer_id;
-static uint32_t                   data_seq;
 static canard_us_t                last_data_us;
 
 static uint32_t                   can_rx_count;
@@ -182,6 +188,70 @@ static void MX_GPIO_Init(void) {
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); /* LED off */
 }
 
+/* ---------------------------------------------------------
+ * I2C1 init (PB6 SCL / PB7 SDA -- STLM75 temperature sensor).
+ * --------------------------------------------------------- */
+
+static void MX_I2C1_Init(void) {
+  __HAL_RCC_I2C1_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /* PB6/PB7 = I2C1 AF open-drain. The internal pull-ups are far too weak
+     for a real I2C bus, so external ones (typically on the sensor board)
+     are required; the internal ones stay enabled as a safety net. */
+  GPIO_InitTypeDef gpio = {0};
+  gpio.Pin   = GPIO_PIN_6 | GPIO_PIN_7;
+  gpio.Mode  = GPIO_MODE_AF_OD;
+  gpio.Pull  = GPIO_PULLUP;
+  gpio.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOB, &gpio);
+
+  hi2c1.Instance             = I2C1;
+  hi2c1.Init.ClockSpeed      = 100000U; /* STLM75 native 100 kHz */
+  hi2c1.Init.DutyCycle       = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1     = 0;
+  hi2c1.Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2     = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
+    Error_Handler();
+  }
+}
+
+/* ---------------------------------------------------------
+ * USART2 init (PA2 TX / PA3 RX -- Flipper Zero ASCII bridge).
+ * --------------------------------------------------------- */
+
+static void MX_USART2_UART_Init(void) {
+  __HAL_RCC_USART2_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  GPIO_InitTypeDef gpio = {0};
+  gpio.Pin   = GPIO_PIN_2 | GPIO_PIN_3;
+  gpio.Mode  = GPIO_MODE_AF_PP;
+  gpio.Pull  = GPIO_PULLUP;
+  gpio.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOA, &gpio);
+
+  huart2.Instance          = USART2;
+  huart2.Init.BaudRate     = FLIPPER_BAUDRATE;
+  huart2.Init.WordLength   = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits     = UART_STOPBITS_1;
+  huart2.Init.Parity       = UART_PARITY_NONE;
+  huart2.Init.Mode         = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /* RX interrupt feeds UART_Protocol_HAL_RxCpltCallback (see it.c). */
+  HAL_NVIC_SetPriority(USART2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(USART2_IRQn);
+}
+
 void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
@@ -232,6 +302,11 @@ int main(void) {
   SystemClock_Config();
   MX_GPIO_Init();
   MX_CAN1_Init();
+  MX_I2C1_Init();
+  MX_USART2_UART_Init();
+
+  /* Start UART line reception (PING/READ commands from the Flipper). */
+  UART_Protocol_Init(&huart2);
 
   const canard_mem_t mem = {.vtable = &mem_vt, .context = NULL};
   const canard_mem_set_t mems = {
@@ -262,7 +337,26 @@ int main(void) {
     Error_Handler();
   }
 
-  last_hb_us = canard_now_cb(NULL);
+  /* Scan for the STLM75: the I2C address depends on the A2/A1/A0 strapping,
+     so probe the whole 0x48..0x4F range and use whatever ACKs. Without a
+     sensor on the bus this unit keeps heartbeating but stays silent on
+     subject 7514 -- wire the sensor and power-cycle to go live. */
+  const uint16_t stlm75_addr = STLM75_ScanAddress(&hi2c1);
+  const uint8_t  sensor_ok   = (stlm75_addr != 0U) ? 1U : 0U;
+  if (sensor_ok) {
+    UART_Protocol_SendAddr(stlm75_addr >> 1); /* ADDR:0xNN to the Flipper */
+  } else {
+    UART_Protocol_SendError(); /* ERR to the Flipper, once, at boot */
+  }
+
+  /* One visible LED pulse to mark startup (the 1 Hz heartbeat toggle takes
+     over from here). */
+  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  HAL_Delay(50U);
+  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
+  last_hb_us   = canard_now_cb(NULL);
+  last_data_us = canard_now_cb(NULL);
 
   while (1) {
     /* Publish uavcan.node.Heartbeat.1.0 every second. */
@@ -304,28 +398,37 @@ int main(void) {
       HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
     }
 
-    /* Publish uavcan.si.sample.temperature.Scalar.1.0 on subject 7514 at 1 Hz.
-     * No temperature sensor is attached to this board: the value below is a
-     * placeholder around 290 K -- replace with a real TMP102/DS18B20 readout.
-     * Sample timestamp stays 0 (no network time sync in this demo). */
-    if ((now - last_data_us) >= 1000000U) {
-      uavcan_si_sample_temperature_Scalar_1_0 board = {0};
-      board.kelvin = 290.0f + (float)(data_seq % 10) * 0.1f;
-      data_seq++;
-
-      uint8_t      buf[32];
-      size_t       sz = sizeof(buf);
-      const int8_t err =
-          uavcan_si_sample_temperature_Scalar_1_0_serialize_(&board, buf, &sz);
-      if (err >= 0) {
-        const canard_bytes_chain_t chain = {
-            .bytes = {.size = sz, .data = buf},
-            .next  = NULL,
-        };
-        (void)canard_publish_13b(&canard_inst, now + 5000000, 1U, canard_prio_nominal,
-                                 SUBJECT_TEMPERATURE, data_transfer_id++, chain, NULL);
-      }
+    /* Every TEMP_REPORT_INTERVAL_MS: read the STLM75 and report it twice --
+     * as a Cyphal sample on subject 7514 (kelvin) and to the Flipper over
+     * USART2 (TEMP:<celsius>). If no sensor was found at boot (sensor_ok ==
+     * 0) this stays silent: heartbeat only until one is wired and the board
+     * is power-cycled. Sample timestamp stays 0 (no network time sync). */
+    if ((now - last_data_us) >= ((canard_us_t)TEMP_REPORT_INTERVAL_MS * 1000U)) {
       last_data_us = now;
+
+      float temp_c = 0.0f;
+      if (sensor_ok && (STLM75_ReadTemp(&hi2c1, stlm75_addr, &temp_c) == HAL_OK)) {
+        uavcan_si_sample_temperature_Scalar_1_0 sample = {0};
+        sample.kelvin = temp_c + 273.15f;
+
+        uint8_t      buf[32];
+        size_t       sz = sizeof(buf);
+        const int8_t err =
+            uavcan_si_sample_temperature_Scalar_1_0_serialize_(&sample, buf, &sz);
+        if (err >= 0) {
+          const canard_bytes_chain_t chain = {
+              .bytes = {.size = sz, .data = buf},
+              .next  = NULL,
+          };
+          (void)canard_publish_13b(&canard_inst, now + 5000000, 1U, canard_prio_nominal,
+                                   SUBJECT_TEMPERATURE, data_transfer_id++, chain, NULL);
+        }
+        UART_Protocol_SendTemp(temp_c);
+      } else if (sensor_ok) {
+        /* Sensor was found at boot but stopped ACKing: surface the I2C HAL
+           error code on the UART for diagnosis. Nothing goes on the bus. */
+        UART_Protocol_SendI2CError(hi2c1.ErrorCode);
+      }
     }
 
     /* Drain the TX pipeline. iface 0 is always "ready": with NART=1 every

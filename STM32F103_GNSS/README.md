@@ -30,5 +30,5 @@ without extra setup.
 make flash                  # ST-Link (SWD_FREQ=100 kHz by default)
 make wireshark              # slcand + Wireshark with the Cyphal dissector
 make tshark FILTER=         # live decode on the console
-source ./yakut-env.sh && yakut sub reg.udral.physics.kinematics.geodetic.Point.0.1 +M
+source ./yakut-env.sh && yakut sub 7513:reg.udral.physics.kinematics.geodetic.Point.0.1 +M
 ```
