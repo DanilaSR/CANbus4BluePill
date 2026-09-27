@@ -14,8 +14,21 @@
 export PATH="$HOME/.local/bin:$PATH"
 export CYPHAL_PATH="${CYPHAL_PATH:-$HOME/.cyphal/dsdl}"
 
+# The second CAN(...) argument is the local node-ID. None = passive monitoring.
+# A service REQUEST must carry a source node-ID, so for `yakut call` claim one
+# that does not collide with the units (51..56):
+#   CYPHAL_NODE_ID=42 source ./yakut-env.sh
+#   yakut call spacecraft.flywheel.SetSpeed.1.0 '{"target_rpm": 1000}'
+_LOCAL_NODE_ID="${CYPHAL_NODE_ID:-None}"
+
+# The flywheel DSDL types carry fixed port-IDs that are not in the public
+# registry (100/101/102 services, 7516 message) -- pydsdl rejects them unless
+# explicitly allowed (nnvg is invoked with --allow-unregulated-fixed-port-id;
+# this env var is the pycyphal import-hook equivalent).
+export CYPHAL_ALLOW_UNREGULATED_FIXED_PORT_ID=1
+
 if ip link show can0 >/dev/null 2>&1; then
-    export YAKUT_TRANSPORT='CAN(can.media.pythoncan.PythonCANMedia("socketcan:can0",500000),None)'
+    export YAKUT_TRANSPORT="CAN(can.media.pythoncan.PythonCANMedia(\"socketcan:can0\",500000),${_LOCAL_NODE_ID})"
 else
-    export YAKUT_TRANSPORT='CAN(can.media.pythoncan.PythonCANMedia("slcan:/dev/ttyACM0",500000),None)'
+    export YAKUT_TRANSPORT="CAN(can.media.pythoncan.PythonCANMedia(\"slcan:/dev/ttyACM0\",500000),${_LOCAL_NODE_ID})"
 fi

@@ -7,14 +7,14 @@ This is usage of wide-known libcanard library for STM32 Blue Pill. The aim is co
 Six node projects derived from the `STM32F103_CAN` template. Each is
 self-contained (own `build.sh`, `Makefile`, `can0.sh`, `yakut-env.sh`,
 `README.md`); the tools work exactly as in the template. All six publish
-`uavcan.node.Heartbeat.1.0` (subject 7509) at 1 Hz; the four sensor units
-additionally publish their own DSDL type:
+`uavcan.node.Heartbeat.1.0` (subject 7509) at 1 Hz; the sensor units and the
+flywheel additionally publish their own DSDL type:
 
 | Unit | Project | Node ID | Data subject | DSDL type | Rate |
 |---|---|---|---|---|---|
 | Solar sensor | `STM32F103_SolarSensor` | 51 | 7510 (α), 7515 (β) | `uavcan.si.sample.angle.Scalar.1.0` | 1 Hz |
 | IMU | `STM32F103_IMU_CAN` | 52 | 7511, 7512 | `uavcan.si.sample.angular_velocity.Vector3.1.0`, `uavcan.si.sample.acceleration.Vector3.1.0` | 10 Hz |
-| Flywheel | `STM32F103_Flywheel` | 53 | — | (heartbeat only) | — |
+| Flywheel | `STM32F103_Flywheel` | 53 | 7516 | `spacecraft.flywheel.Status.1.0` + services 100–102 (`SetSpeed`, `CreateTorque`, `StartSelfTest`) | 1 Hz + on change |
 | Coil | `STM32F103_Coil` | 54 | — | (heartbeat only) | — |
 | GNSS | `STM32F103_GNSS` | 55 | 7513 | `reg.udral.physics.kinematics.geodetic.Point.0.1` | 1 Hz |
 | Temperature sensor | `STM32F103_TemperatureSensor` | 56 | 7514 | `uavcan.si.sample.temperature.Scalar.1.0` | 1 Hz |
@@ -25,6 +25,13 @@ Notes:
   `DSDLtypes/`, and yakut/pycyphal resolve them from `~/.cyphal/dsdl` — no
   extra DSDL tooling needed. Subscribe with an explicit subject-ID, e.g.
   `yakut sub 7514:uavcan.si.sample.temperature.Scalar.1.0 +M`.
+  **Exception:** `STM32F103_Flywheel` defines its own package
+  `spacecraft.flywheel.*` (sources in `~/.cyphal/dsdl/spacecraft/flywheel/`,
+  generated C in its `DSDLtypes/`); its fixed port-IDs (100/101/102 services,
+  7516 message) are not in the public registry, so both sides allow them via
+  `CYPHAL_ALLOW_UNREGULATED_FIXED_PORT_ID=1` (already set in that unit's
+  `yakut-env.sh`), and editing the DSDL requires regenerating the headers with
+  `nnvg` — see `STM32F103_Flywheel/README.md`.
 - The sensor payloads are drifting placeholders — no sensor ICs are wired to
   the boards; replace the marked lines in each `Core/Src/main.c` with real
   driver readouts. Sample timestamps stay 0 (no network time sync yet).
@@ -48,3 +55,9 @@ Notes:
 - `STM32F103_IMU_CAN` (node 52) was build-flashed-verified on hardware:
   heartbeat decodes in yakut and Wireshark; with no MPU-9250 wired the
   heartbeat-only mode was verified (no subjects 7511/7512 on the bus).
+- `STM32F103_Flywheel` (node 53) was build-flashed-verified on hardware: all
+  three services answer in yakut, `Status` (subject 7516) decodes in yakut and
+  Wireshark (5-frame multi-frame transfer), spin-up/self-test/over-temperature
+  behavior observed end-to-end, and the heartbeat health ladder reacts to the
+  self-test verdict and the over-temperature fault. See
+  `STM32F103_Flywheel/README.md`.
