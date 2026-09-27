@@ -1,5 +1,10 @@
 /* IMU unit (spacecraft unit 2/6) -- node-ID 52, Heartbeat.1.0 (7509) + si.sample.angular_velocity.Vector3.1.0 (7511) + si.sample.acceleration.Vector3.1.0 (7512).
- * Derived from the STM32F103_CAN template.
+ * Merged from STM32F103_IMU (MPU-9250 + SSD1306 + CSV stream), derived from the
+ * STM32F103_CAN template. One I2C1 bus carries the MPU-9250 (0x68) and the
+ * SSD1306 OLED (0x3C); USART1 streams CSV for visualize.py. The same 10 Hz
+ * sample feeds all three sinks: Cyphal (SI units: rad/s, m/s^2), the OLED
+ * mirror, and the CSV line (original driver units: g, deg/s, degC).
+ * Without a sensor on the bus the unit heartbeats but stays silent.
  */
 
 #include "main.h"
@@ -14,7 +19,14 @@
 #include <string.h>
 #include <sys/types.h>
 
+#include "mpu9250.h"
+#include "ssd1306.h"
+
 CAN_HandleTypeDef hcan1;
+I2C_HandleTypeDef  hi2c1;
+UART_HandleTypeDef huart1;
+MPU9250_t         imu;
+SSD1306_t         oled;
 
 static canard_t             canard_inst;
 #define CANARD_NODE_ID 52U /* fixed local node ID (Cyphal 7-bit, 1..127) */
@@ -26,7 +38,6 @@ static const uint16_t       SUBJECT_GYRO  = 7511U;
 static const uint16_t       SUBJECT_ACCEL = 7512U;
 static uint8_t                    data_gyro_tid;
 static uint8_t                    data_accel_tid;
-static uint32_t                   data_seq;
 static canard_us_t                last_data_us;
 
 static uint32_t                   can_rx_count;
@@ -106,6 +117,67 @@ static void mem_free_cb(canard_mem_t memory, size_t size, void* ptr) {
 }
 
 static const canard_mem_vtable_t mem_vt = {.free = &mem_free_cb, .alloc = &mem_alloc_cb};
+
+/* ---------------------------------------------------------
+ * Float-to-fixed string without newlib %f (which is broken in this
+ * toolchain: even a literal 12.34f prints "-0.00"). Scale by 10^dec with
+ * rounding, then format as integers so only integer printf paths are used.
+ * Copied verbatim from STM32F103_IMU.
+ * --------------------------------------------------------- */
+
+static void fmt_f(char *out, size_t n, float v, int dec) {
+  static const float pw[4] = {1e0f, 1e1f, 1e2f, 1e3f};
+  float s = (dec >= 0 && dec <= 3) ? pw[dec] : 100.0f;
+  int32_t sc = (int32_t)(v * s + (v < 0.0f ? -0.5f : 0.5f));
+  int32_t ip = sc / (int32_t)s;
+  int32_t fp = sc % (int32_t)s;
+  if (fp < 0)
+    fp = -fp;
+  if (dec > 0)
+    snprintf(out, n, "%d.%0*d", (int)ip, dec, (int)fp);
+  else
+    snprintf(out, n, "%d", (int)ip);
+}
+
+/* Join three fmt_f values into "a,b,c" for the OLED lines. */
+static void fmt_f3(char *out, size_t n, float a, float b, float c) {
+  char ta[16], tb[16], tc[16];
+  fmt_f(ta, sizeof(ta), a, 3);
+  fmt_f(tb, sizeof(tb), b, 3);
+  fmt_f(tc, sizeof(tc), c, 3);
+  snprintf(out, n, "%s,%s,%s", ta, tb, tc);
+}
+
+/* I2C1 (PB6 SCL / PB7 SDA) -- MPU-9250 + SSD1306 share the bus. The GPIOs
+ * are set up by HAL_I2C_MspInit() in stm32f1xx_hal_msp.c. */
+static void MX_I2C1_Init(void) {
+  hi2c1.Instance             = I2C1;
+  hi2c1.Init.ClockSpeed      = 100000U;
+  hi2c1.Init.DutyCycle       = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1     = 0;
+  hi2c1.Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
+    Error_Handler();
+  }
+}
+
+/* USART1 (PA9 TX / PA10 RX) -- CSV stream for visualize.py (TX only). */
+static void MX_USART1_UART_Init(void) {
+  huart1.Instance          = USART1;
+  huart1.Init.BaudRate     = CSV_BAUDRATE;
+  huart1.Init.WordLength   = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits     = UART_STOPBITS_1;
+  huart1.Init.Parity       = UART_PARITY_NONE;
+  huart1.Init.Mode         = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK) {
+    Error_Handler();
+  }
+}
 
 /* ---------------------------------------------------------
  * CAN1 init (PA11 RX / PA12 TX — default pins, no remap).
@@ -234,6 +306,8 @@ int main(void) {
   HAL_Init();
   SystemClock_Config();
   MX_GPIO_Init();
+  MX_I2C1_Init();
+  MX_USART1_UART_Init();
   MX_CAN1_Init();
 
   const canard_mem_t mem = {.vtable = &mem_vt, .context = NULL};
@@ -266,6 +340,17 @@ int main(void) {
   }
 
   last_hb_us = canard_now_cb(NULL);
+
+  /* MPU-9250 WHO_AM_I at boot: if the sensor is absent or fails to answer
+     (mpu_ok == 0) the unit keeps heartbeating but publishes nothing on
+     7511/7512 and emits no CSV or OLED traffic -- wire it and power-cycle
+     to go live. The OLED is initialised unconditionally; with no display
+     on the bus its writes just NACK and fail fast. */
+  const int mpu_ok = (MPU9250_Init(&imu, &hi2c1, MPU9250_ADDR) == HAL_OK);
+  SSD1306_Init(&oled, &hi2c1);
+  SSD1306_Clear(&oled);
+
+  uint32_t tick = 0;
 
   while (1) {
     /* Publish uavcan.node.Heartbeat.1.0 every second. */
@@ -307,44 +392,83 @@ int main(void) {
       HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
     }
 
-    /* Publish uavcan.si.sample.angular_velocity.Vector3.1.0 (subject 7511) and
-     * uavcan.si.sample.acceleration.Vector3.1.0 (subject 7512) at 10 Hz.
-     * No IMU chip is attached to this board: the traces below are drifting
-     * placeholders -- replace with real MPU-9250/ICM-20602 readouts.
-     * Sample timestamps stay 0 (no network time sync in this demo). */
-    if ((now - last_data_us) >= 100000U) {
-      uavcan_si_sample_angular_velocity_Vector3_1_0 gyro = {0};
-      gyro.radian_per_second[0] = 0.05f * (float)(data_seq % 20) / 20.0f - 0.025f;
-      gyro.radian_per_second[1] = -0.02f * (float)(data_seq % 10) / 10.0f + 0.01f;
-      gyro.radian_per_second[2] = 0.05f;
-
-      uavcan_si_sample_acceleration_Vector3_1_0 acc = {0};
-      acc.meter_per_second_per_second[0] = 0.05f * (float)(data_seq % 40) / 40.0f;
-      acc.meter_per_second_per_second[1] = 0.03f * (float)(data_seq % 25) / 25.0f;
-      acc.meter_per_second_per_second[2] = 9.81f;   /* +Z along gravity */
-      data_seq++;
-
-      uint8_t      buf[32];
-      size_t       sz = sizeof(buf);
-      if (uavcan_si_sample_angular_velocity_Vector3_1_0_serialize_(&gyro, buf, &sz) >= 0) {
-        const canard_bytes_chain_t chain = {
-            .bytes = {.size = sz, .data = buf},
-            .next  = NULL,
-        };
-        (void)canard_publish_13b(&canard_inst, now + 5000000, 1U, canard_prio_nominal,
-                                 SUBJECT_GYRO, data_gyro_tid++, chain, NULL);
-      }
-
-      sz = sizeof(buf);
-      if (uavcan_si_sample_acceleration_Vector3_1_0_serialize_(&acc, buf, &sz) >= 0) {
-        const canard_bytes_chain_t chain = {
-            .bytes = {.size = sz, .data = buf},
-            .next  = NULL,
-        };
-        (void)canard_publish_13b(&canard_inst, now + 5000000, 1U, canard_prio_nominal,
-                                 SUBJECT_ACCEL, data_accel_tid++, chain, NULL);
-      }
+    /* Every IMU_REPORT_INTERVAL_MS (100 ms = 10 Hz): read the MPU-9250 and
+     * report the same sample three ways -- Cyphal subjects 7511/7512 in SI
+     * units (rad/s, m/s^2), the CSV line on USART1 in the driver's original
+     * units (g, deg/s, degC) for visualize.py, and the SSD1306 mirror.
+     * Sample timestamps stay 0 (no network time sync in this demo).
+     * A failed sensor keeps the unit on heartbeat-only until re-probed. */
+    if ((now - last_data_us) >= ((canard_us_t)IMU_REPORT_INTERVAL_MS * 1000U)) {
       last_data_us = now;
+
+      MPU9250_Data_t data;
+      if (mpu_ok && (MPU9250_ReadRaw(&imu, &data) == HAL_OK)) {
+        MPU9250_Compute(&imu, &data); /* accel [g], gyro [deg/s], temp [degC] */
+
+        /* --- Cyphal: convert to SI units, publish 7511/7512 --- */
+        uavcan_si_sample_angular_velocity_Vector3_1_0 gyro = {0};
+        gyro.radian_per_second[0] = data.gx * (3.14159265358979f / 180.0f);
+        gyro.radian_per_second[1] = data.gy * (3.14159265358979f / 180.0f);
+        gyro.radian_per_second[2] = data.gz * (3.14159265358979f / 180.0f);
+
+        uavcan_si_sample_acceleration_Vector3_1_0 acc = {0};
+        acc.meter_per_second_per_second[0] = data.ax * 9.80665f;
+        acc.meter_per_second_per_second[1] = data.ay * 9.80665f;
+        acc.meter_per_second_per_second[2] = data.az * 9.80665f;
+
+        uint8_t buf[32];
+        size_t  sz = sizeof(buf);
+        if (uavcan_si_sample_angular_velocity_Vector3_1_0_serialize_(&gyro, buf, &sz) >= 0) {
+          const canard_bytes_chain_t chain = {
+              .bytes = {.size = sz, .data = buf},
+              .next  = NULL,
+          };
+          (void)canard_publish_13b(&canard_inst, now + 5000000, 1U, canard_prio_nominal,
+                                   SUBJECT_GYRO, data_gyro_tid++, chain, NULL);
+        }
+
+        sz = sizeof(buf);
+        if (uavcan_si_sample_acceleration_Vector3_1_0_serialize_(&acc, buf, &sz) >= 0) {
+          const canard_bytes_chain_t chain = {
+              .bytes = {.size = sz, .data = buf},
+              .next  = NULL,
+          };
+          (void)canard_publish_13b(&canard_inst, now + 5000000, 1U, canard_prio_nominal,
+                                   SUBJECT_ACCEL, data_accel_tid++, chain, NULL);
+        }
+
+        /* --- CSV line for visualize.py: "ax,ay,az,gx,gy,gz,temp\r\n" --- */
+        const float v[7] = {data.ax, data.ay, data.az,
+                            data.gx, data.gy, data.gz, data.temp};
+        char   csv[80];
+        size_t off = 0;
+        for (int i = 0; i < 7; i++) {
+          char num[16];
+          fmt_f(num, sizeof(num), v[i], 3);
+          off += (size_t)snprintf(csv + off, sizeof(csv) - off, "%s%s",
+                                  i ? "," : "", num);
+        }
+        snprintf(csv + off, sizeof(csv) - off, "\r\n");
+        HAL_UART_Transmit(&huart1, (uint8_t *)csv, (uint16_t)strlen(csv), 100U);
+
+        /* --- SSD1306 mirror (original STM32F103_IMU layout) --- */
+        /* 48 bytes per line: silences -Wformat-truncation (fmt_f3's worst
+           case of three 15-byte fields) and matches DrawPixel's clipping
+           when a full-scale gyro overflows the 21-char display width. */
+        char l0[48], l1[48], l2[16], l3[16];
+        fmt_f3(l0, sizeof(l0), data.ax, data.ay, data.az);
+        fmt_f3(l1, sizeof(l1), data.gx, data.gy, data.gz);
+        fmt_f(l2, sizeof(l2), data.temp, 3);
+        snprintf(l3, sizeof(l3), "t=%lu", (unsigned long)tick);
+        SSD1306_Clear(&oled);
+        SSD1306_DrawString(&oled, 0, 0, l0, 1);
+        SSD1306_DrawString(&oled, 0, 8, l1, 1);
+        SSD1306_DrawString(&oled, 0, 16, l2, 1);
+        SSD1306_DrawString(&oled, 0, 24, l3, 1);
+        SSD1306_Update(&oled);
+        tick++;
+      }
+      /* mpu_ok == 0 or read error: no publish, no CSV, no OLED update. */
     }
 
     /* Drain the TX pipeline. iface 0 is always "ready": with NART=1 every

@@ -52,9 +52,13 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef *hi2c)
         __HAL_RCC_I2C1_CLK_ENABLE();
         __HAL_RCC_GPIOB_CLK_ENABLE();
 
-        /* I2C1: PB6 = SCL, PB7 = SDA (AF open-drain) */
+        /* I2C1: PB6 = SCL, PB7 = SDA (AF open-drain)
+         * Internal pull-ups as a fallback so an empty bus (no modules
+         * wired) idles high and NACKs quickly instead of timing out on
+         * floating lines. Modules bring their own stronger pull-ups. */
         GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7;
         GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
+        GPIO_InitStruct.Pull = GPIO_PULLUP;
         GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
         HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
     }

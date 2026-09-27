@@ -60,6 +60,8 @@ HAL_SRCS=(
     "${PROJECT_DIR}/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_flash.c"
     "${PROJECT_DIR}/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_flash_ex.c"
     "${PROJECT_DIR}/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_gpio.c"
+    "${PROJECT_DIR}/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_i2c.c"
+    "${PROJECT_DIR}/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_uart.c"
     "${PROJECT_DIR}/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_pwr.c"
     "${PROJECT_DIR}/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_rcc.c"
     "${PROJECT_DIR}/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_rcc_ex.c"
@@ -68,6 +70,9 @@ HAL_SRCS=(
 CORE_SRCS=(
     "${PROJECT_DIR}/Core/Src/main.c"
     "${PROJECT_DIR}/Core/Src/stm32f1xx_it.c"
+    "${PROJECT_DIR}/Core/Src/stm32f1xx_hal_msp.c"
+    "${PROJECT_DIR}/Core/Src/mpu9250.c"
+    "${PROJECT_DIR}/Core/Src/ssd1306.c"
     "${PROJECT_DIR}/lib/canard.c"
     "${PROJECT_DIR}/Drivers/CMSIS/Device/ST/STM32F1xx/Source/Templates/system_stm32f1xx.c"
 )

@@ -28,15 +28,23 @@ Notes:
 - The sensor payloads are drifting placeholders — no sensor ICs are wired to
   the boards; replace the marked lines in each `Core/Src/main.c` with real
   driver readouts. Sample timestamps stay 0 (no network time sync yet).
-  **Exception:** `STM32F103_TemperatureSensor` merged the real STLM75 (I²C)
-  driver from `STM32DISC_TEMP` (now removed) — it publishes real readings
-  when a sensor is wired to PB6/PB7, and heartbeat-only (no subject 7514)
-  until then. It also keeps `STM32DISC_TEMP`'s Flipper Zero ASCII bridge on
-  USART2 (PA2/PA3).
+  **Exceptions** (both merged from standalone projects that are now removed):
+  - `STM32F103_TemperatureSensor` merged the real STLM75 (I²C) driver from
+    `STM32DISC_TEMP` — it publishes real readings when a sensor is wired to
+    PB6/PB7, and heartbeat-only (no subject 7514) until then. It also keeps
+    `STM32DISC_TEMP`'s Flipper Zero ASCII bridge on USART2 (PA2/PA3).
+  - `STM32F103_IMU_CAN` merged the real MPU-9250 + SSD1306 + CSV-stream
+    firmware from `STM32F103_IMU` — real gyro/accel (converted to SI units)
+    when a sensor is on I²C1 PB6/PB7, heartbeat-only (no 7511/7512) until
+    then; the OLED mirror, the USART1 CSV line and `visualize.py` came along.
 - Node 55 was the template's original ID; the template is superseded by these
   units (a single BluePill runs one unit at a time), so there is no collision.
 - `STM32F103_TemperatureSensor` (node 56) was build-flashed-verified on
   hardware: heartbeat + subject 7514 decode cleanly in yakut and Wireshark;
   after the STLM75 merge the heartbeat-only no-sensor mode was re-verified.
-- `STM32F103_IMU_CAN` avoids a name clash with the pre-existing
-  `STM32F103_IMU` (standalone MPU-9250 + OLED project).
+- `STM32F103_IMU_CAN` was named to avoid a clash with the pre-existing
+  `STM32F103_IMU` (standalone MPU-9250 + OLED project); that project has
+  since been merged into this unit and removed.
+- `STM32F103_IMU_CAN` (node 52) was build-flashed-verified on hardware:
+  heartbeat decodes in yakut and Wireshark; with no MPU-9250 wired the
+  heartbeat-only mode was verified (no subjects 7511/7512 on the bus).
