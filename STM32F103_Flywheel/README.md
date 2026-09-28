@@ -136,6 +136,11 @@ need them allowed:
     --allow-unregulated-fixed-port-id
 ```
 
+Note: `DSDLtypes/` here is a symlink to the copy shared by all projects in
+the repository root, so regenerating from this directory updates it for
+every project (the extra `spacecraft.flywheel.*` headers are harmless for
+the units that do not use them).
+
 ## Build & flash
 
 ```sh

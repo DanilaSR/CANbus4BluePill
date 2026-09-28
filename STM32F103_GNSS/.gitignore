@@ -1,9 +1,0 @@
-# runtime artifacts
-log.jsonl
-
-# build output (rebuilt by build.sh; never commit)
-build/
-
-# editor swap files
-*.kate-swp
-.*.kate-swp

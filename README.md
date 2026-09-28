@@ -28,11 +28,14 @@ a full directory name works too (`make build-STM32F103_GNSS`).
 ## Spacecraft units
 
 Six node projects derived from the `STM32F103_CAN` template, plus the central
-processor (below). Each is
-self-contained (own `build.sh`, `Makefile`, `can0.sh`, `yakut-env.sh`,
-`README.md`); the tools work exactly as in the template. All six publish
-`uavcan.node.Heartbeat.1.0` (subject 7509) at 1 Hz; the sensor units and the
-flywheel additionally publish their own DSDL type:
+processor (below). Each project keeps its own `build.sh`, `Makefile`,
+`yakut-env.sh` and `README.md`; everything byte-identical across projects
+(`can0.sh`, `Drivers/`, `lib/`, `DSDLtypes/`, `decode_heartbeat.py`,
+`hb-analyze.py`, `yakut_monitor.sh`) is stored once in the repository root and
+symlinked into each project (`build/` and the like are ignored by the single
+root `.gitignore`), so every per-project command works exactly as before. All
+six publish `uavcan.node.Heartbeat.1.0` (subject 7509) at 1 Hz; the sensor
+units and the flywheel additionally publish their own DSDL type:
 
 | Unit | Project | Node ID | Data subject | DSDL type | Rate |
 |---|---|---|---|---|---|
@@ -45,13 +48,14 @@ flywheel additionally publish their own DSDL type:
 
 Notes:
 
-- Standard Cyphal types only: the C headers already ship with the template's
-  `DSDLtypes/`, and yakut/pycyphal resolve them from `~/.cyphal/dsdl` — no
+- Standard Cyphal types only: the C headers already ship with the shared
+  `DSDLtypes/` in the repository root (symlinked into each project), and
+  yakut/pycyphal resolve them from `~/.cyphal/dsdl` — no
   extra DSDL tooling needed. Subscribe with an explicit subject-ID, e.g.
   `yakut sub 7514:uavcan.si.sample.temperature.Scalar.1.0 +M`.
   **Exception:** `STM32F103_Flywheel` defines its own package
   `spacecraft.flywheel.*` (sources in `~/.cyphal/dsdl/spacecraft/flywheel/`,
-  generated C in its `DSDLtypes/`); its fixed port-IDs (100/101/102 services,
+  generated C in the shared `DSDLtypes/`); its fixed port-IDs (100/101/102 services,
   7516 message) are not in the public registry, so both sides allow them via
   `CYPHAL_ALLOW_UNREGULATED_FIXED_PORT_ID=1` (already set in that unit's
   `yakut-env.sh`), and editing the DSDL requires regenerating the headers with

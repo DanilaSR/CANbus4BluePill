@@ -30,8 +30,9 @@ target it directly.
 - `visualize.py` (host side) reads the CSV stream and plots it live with
   matplotlib: `python3 visualize.py [port]`.
 
-All types are standard Cyphal DSDL: the C headers ship with the template's
-`DSDLtypes/`, and yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
+All types are standard Cyphal DSDL: the C headers ship with the shared
+`DSDLtypes/` (repository root, symlinked into this project), and
+yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
 without extra setup.
 
 ## Build & flash

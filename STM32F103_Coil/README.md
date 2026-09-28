@@ -14,8 +14,9 @@ own ID so `make getinfo`/`make tshark` target it directly.
 - Actuator unit: heartbeat only, exactly as the template. When a
   magnetorquer driver is added it will consume command transfers here.
 
-All types are standard Cyphal DSDL: the C headers ship with the template's
-`DSDLtypes/`, and yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
+All types are standard Cyphal DSDL: the C headers ship with the shared
+`DSDLtypes/` (repository root, symlinked into this project), and
+yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
 without extra setup.
 
 ## Build & flash

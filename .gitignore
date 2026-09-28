@@ -1,0 +1,12 @@
+# runtime artifacts
+log.jsonl
+
+# build output (rebuilt by build.sh; never commit)
+build/
+
+# nunavut generator output (never commit)
+nunavut_out/
+
+# editor swap files
+*.kate-swp
+.*.kate-swp

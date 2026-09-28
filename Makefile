@@ -1,7 +1,9 @@
 # CANbus4BluePill -- one Makefile for all eight BluePill Cyphal projects.
-# The projects stay self-contained (each has its own Makefile with the full
-# toolset); this root file only dispatches to them, so any per-project flag
-# (FILTER=, SN=, SWD_FREQ=, GETINFO_TIMEOUT=, NODE_ID=, ...) still works.
+# Each project keeps its own Makefile with the full toolset (files shared by
+# all of them -- can0.sh, Drivers/, lib/, DSDLtypes/, the helpers -- live in
+# this directory and are symlinked into the projects); this root file only
+# dispatches, so any per-project flag (FILTER=, SN=, SWD_FREQ=,
+# GETINFO_TIMEOUT=, NODE_ID=, ...) still works.
 #
 #   make                 build ALL projects (default target)
 #   make build-<name>    build one project,    e.g. make build-flywheel
@@ -76,16 +78,25 @@ flash getinfo:
 	@echo "  $(ALIASES)   (or a directory like STM32F103_Flywheel)" >&2
 	@exit 2
 
-# The bus tooling is identical in every project; the template's copy is used
-# as the reference (FILTER=, IFACE= etc. are forwarded by make automatically).
+# The bus tooling (can0.sh) lives in the repository root and is symlinked
+# into every project; up/down are guarded here so sudo is only asked when
+# the interface state actually has to change (IFACE is can0 inside can0.sh).
 can0-up:
-	$(MAKE) -C $(dir_template) can0-up
+	@if ip link show can0 >/dev/null 2>&1; then \
+		echo "can0 already up"; \
+	else \
+		sudo ./can0.sh up; \
+	fi
 
 can0-down:
-	$(MAKE) -C $(dir_template) can0-down
+	@if ip link show can0 >/dev/null 2>&1; then \
+		sudo ./can0.sh down; \
+	else \
+		echo "can0 already down"; \
+	fi
 
 can0-status:
-	@./$(dir_template)/can0.sh status
+	@./can0.sh status
 
 wireshark:
 	$(MAKE) -C $(dir_template) wireshark

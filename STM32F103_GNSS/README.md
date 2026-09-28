@@ -19,8 +19,9 @@ own ID so `make getinfo`/`make tshark` target it directly.
   63.0385 E -- no GNSS receiver is wired; replace the marked lines with a
   real u-blox M8/M10 solution. Timestamp stays 0 (no time sync).
 
-All types are standard Cyphal DSDL: the C headers ship with the template's
-`DSDLtypes/`, and yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
+All types are standard Cyphal DSDL: the C headers ship with the shared
+`DSDLtypes/` (repository root, symlinked into this project), and
+yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
 without extra setup.
 
 ## Build & flash

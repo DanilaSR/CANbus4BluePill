@@ -11,7 +11,8 @@ directly.
 - **Node ID:** 50 (fixed, see `CANARD_NODE_ID` in `Core/Src/main.c`)
 - **Console:** USART1 PA9/PA10, 115200 8N1, text lines only (no protocol)
 - **DSDL:** standard types only (Flywheel's `spacecraft.flywheel.Status.1.0`
-  header is copied into `DSDLtypes/`); no new DSDL, no `nnvg` step
+  header already ships in the shared root `DSDLtypes/`); no new DSDL, no
+  `nnvg` step
 
 ## Subscribed subjects
 

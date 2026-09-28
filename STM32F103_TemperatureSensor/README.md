@@ -52,7 +52,8 @@ make tshark FILTER=         # live decode on the console
 source ./yakut-env.sh && yakut sub 7514:uavcan.si.sample.temperature.Scalar.1.0 +M
 ```
 
-All types are standard Cyphal DSDL: the C headers ship with the template's
-`DSDLtypes/`, and yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
+All types are standard Cyphal DSDL: the C headers ship with the shared
+`DSDLtypes/` (repository root, symlinked into this project), and
+yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
 without extra setup. Subject 7514 has no fixed port-ID, hence the explicit
 `7514:` prefix in the subscription.

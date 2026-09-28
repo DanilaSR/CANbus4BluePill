@@ -24,8 +24,9 @@ own ID so `make getinfo`/`make tshark` target it directly.
   in `Core/Src/main.c` with a real photodiode/ADC readout.
 - The sample `timestamp` stays 0: this demo has no network time sync.
 
-All types are standard Cyphal DSDL: the C headers ship with the template's
-`DSDLtypes/`, and yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
+All types are standard Cyphal DSDL: the C headers ship with the shared
+`DSDLtypes/` (repository root, symlinked into this project), and
+yakut/pycyphal resolve the sources from `~/.cyphal/dsdl`
 without extra setup.
 
 ## Build & flash
