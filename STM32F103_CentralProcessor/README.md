@@ -83,12 +83,24 @@ by a host-side unit test of the formatting helpers (`fmt_f`/`fmt_deg`:
 aggregation is verified **indirectly over CAN**: the health ladder and the
 offline counter change exactly as units appear/disappear on the bus.
 
+Measured results with the full six-process fleet on `can0` (node 50's own
+heartbeat, subject 7509, CAN ID `087D5532`, watched with `candump`):
+
+- **Sustained soak:** 330 consecutive 1 Hz heartbeats over 5 min with zero
+  gaps and monotonic uptime (total run >30 min) — `health NOMINAL`,
+  `vendor_specific_status_code 0` throughout.
+- **Reactivity:** killing one unit → `ADVISORY`/`vss 1` within 6 s, restart
+  → `NOMINAL`/`vss 0`; killing four units → `CAUTION`/`vss 4`, restarting
+  them all → `NOMINAL`/`vss 0` again. `mode` stayed `OPERATIONAL` throughout.
+
 ```sh
-# 1 unit alive -> CAUTION / vss 5 (0 units -> WARNING / vss 6 at boot):
-(export CYPHAL_NODE_ID=56; source ./yakut-env.sh; \
- yakut pub -T 1 7514:uavcan.si.sample.temperature.Scalar.1.0 '{kelvin: 294.15}') &
-source ./yakut-env.sh && yakut sub uavcan.node.Heartbeat.1.0 +M
-# node 50: health 3 (WARNING) vss 6 -> health 2 (CAUTION) vss 5
+# offline test (any simulated unit can be used):
+kill $(cat /tmp/opencode/cp/pid56)     # -> health=ADVISORY(1) vss=1
+# restart the same yakut pub -> health=NOMINAL(0) vss=0
+candump -t a can0,087D5532:1FFFFFFF    # raw node-50 heartbeat:
+# uptime_le32 health mode vss <trailing byte>:
+# 7D 07 00 00   01     00    01  FD   <- one unit offline
+# A9 07 00 00   00     00    00  E9   <- all six online
 ```
 
 **One SLCAN serial port = one process.** Two `yakut` processes opening the
@@ -159,6 +171,19 @@ subject 7516, `spacecraft.flywheel.Status.1.0`), and its transport auto-picks
   explicit sign handling (host-tested, see above).
 - **Heartbeat table** has 8 slots (6 expected units + 2 spare, oldest
   recycled), so a stray node ID cannot evict a real unit.
+- **`payload.origin` must be released** (canard.h contract): multi-frame
+  transfers hand the rx_payload block over to the callback, single-frame
+  ones arrive with `origin.data == NULL`. Every exit path of `on_sample` /
+  `on_heartbeat` therefore calls `release_payload(&payload)` (the Flywheel's
+  `on_request` does the same — `StartSelfTest` is 12 bytes, i.e. multi-frame).
+  A missed release was a real hang found on hardware: each multi-frame
+  transfer leaked one rx slot, the heap grew ~1.3 KiB/s under fleet traffic
+  into the ISR stack, the collision corrupted live rx sessions and
+  `CANARD_ASSERT` fired *inside* the CAN RX0 interrupt, where newlib's
+  `abort()` never returns — node hung with `VECTACTIVE=36` and `uwTick`
+  frozen ~13 s after boot. After the fix: heap top stable at ~1.6 KiB above
+  `_ebss` (RAM dumps taken 7 min apart differ only below `0x20000e61`),
+  30+ min of continuous fleet traffic without a hang (see Verification).
 
 ## Build & flash
 

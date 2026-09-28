@@ -56,6 +56,7 @@
 #include <errno.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 
@@ -369,6 +370,20 @@ void CanardRxCallback(void) {
  * SPSC queue only; responses are sent from the main loop.
  * --------------------------------------------------------- */
 
+/* canard.h contract: multi-frame transfers hand payload.origin (the
+ * rx_payload block) over to the application and it must be released;
+ * single-frame transfers arrive with origin.data == NULL. See the same
+ * release_payload in STM32F103_CentralProcessor: leaking here would grow
+ * the heap into the stack the same way. */
+static void release_payload(canard_payload_t* const payload)
+{
+  if (payload->origin.data != NULL) {
+    free(payload->origin.data);
+    payload->origin.data = NULL;
+    payload->origin.size = 0U;
+  }
+}
+
 static void on_request(canard_subscription_t* self,
                        canard_us_t            timestamp,
                        canard_prio_t          priority,
@@ -391,6 +406,7 @@ static void on_request(canard_subscription_t* self,
     __DMB(); /* payload before head publication */
     req_head = next;
   } /* else: queue full or anonymous source -> dropped */
+  release_payload(&payload);
 }
 
 static const canard_subscription_vtable_t request_vt = {.on_message = &on_request};

@@ -46,6 +46,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 
@@ -602,6 +603,23 @@ static bool hb_fresh(const hb_snap_t* hb, canard_us_t now) {
  * no printf, no UART).
  * --------------------------------------------------------- */
 
+/* canard.h contract: on multi-frame transfers payload.origin owns the
+ * rx_payload block and the application must release it; single-frame
+ * transfers arrive with origin.data == NULL, which this handles as a no-op.
+ * Failing to release leaked one slot per multi-frame transfer (~1.3 KiB/s
+ * under fleet traffic): the heap grew into the ISR stack, the collision
+ * corrupted live rx sessions and CANARD_ASSERT fired inside the CAN RX ISR,
+ * where newlib's abort never returns -- the node hung with VECTACTIVE=36
+ * and uwTick frozen. */
+static void release_payload(canard_payload_t* const payload)
+{
+  if (payload->origin.data != NULL) {
+    free(payload->origin.data);
+    payload->origin.data = NULL;
+    payload->origin.size = 0U;
+  }
+}
+
 static void on_heartbeat(canard_subscription_t* self,
                          canard_us_t            timestamp,
                          canard_prio_t          priority,
@@ -612,11 +630,13 @@ static void on_heartbeat(canard_subscription_t* self,
   (void)priority;
   (void)transfer_id;
   if (source_node_id > CANARD_NODE_ID_MAX) {
+    release_payload(&payload);
     return; /* anonymous source: nothing to index by */
   }
   uavcan_node_Heartbeat_1_0 v;
   size_t sz = payload.view.size;
   if (uavcan_node_Heartbeat_1_0_deserialize_(&v, payload.view.data, &sz) < 0) {
+    release_payload(&payload);
     return;
   }
   hb_slot_t* const s = hb_slot_for((uint_least8_t)source_node_id);
@@ -632,6 +652,7 @@ static void on_heartbeat(canard_subscription_t* self,
   s->rx_count++;
   __DMB();
   s->seq++;
+  release_payload(&payload);
 }
 
 static void on_sample(canard_subscription_t* self,
@@ -643,6 +664,7 @@ static void on_sample(canard_subscription_t* self,
   (void)priority;
   (void)transfer_id;
   if (source_node_id > CANARD_NODE_ID_MAX) {
+    release_payload(&payload);
     return;
   }
   slot_id_t id = SLOT_COUNT;
@@ -653,6 +675,7 @@ static void on_sample(canard_subscription_t* self,
     }
   }
   if (id == SLOT_COUNT) {
+    release_payload(&payload);
     return;
   }
 
@@ -713,6 +736,7 @@ static void on_sample(canard_subscription_t* self,
       break;
   }
   if (!ok) {
+    release_payload(&payload);
     return;
   }
 
@@ -725,6 +749,7 @@ static void on_sample(canard_subscription_t* self,
   s->rx_count++;
   __DMB();
   s->seq++;
+  release_payload(&payload);
 }
 
 static const canard_subscription_vtable_t hb_vt     = {.on_message = &on_heartbeat};

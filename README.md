@@ -105,8 +105,19 @@ and its latest values). Its own heartbeat mirrors fleet health:
 
 Verified over CAN (no USB-TTL adapter on the bench — the UART text is covered
 by a host-side unit test of the formatting helpers, the aggregation by the
-health ladder reacting live to simulated units): a single `yakut pub` from a
-simulated unit flips node 50 from `WARNING/6` (vss = offline count) to
-`CAUTION/5`. Note that the SLCAN serial port serves **one process only** —
-the full six-process fleet simulation requires `sudo make can0-up`
-(socketcan), see `STM32F103_CentralProcessor/README.md`.
+health ladder reacting live to simulated units): with the full six-process
+fleet on `can0`, node 50 held `NOMINAL`/`vendor_specific_status_code 0` for
+30+ minutes (330 consecutive 1 Hz heartbeats with zero gaps and monotonic
+uptime), dropping to `ADVISORY`/`vss 1` within 6 s of killing one simulated
+unit and to `CAUTION`/`vss 4` after killing four, and returning to
+`NOMINAL`/`vss 0` on restart — `mode` stayed `OPERATIONAL` throughout.
+Note that the SLCAN serial port serves **one process only** — the full
+six-process fleet simulation requires `sudo make can0-up` (socketcan), see
+`STM32F103_CentralProcessor/README.md`.
+
+The first hardware run also uncovered (and fixed) a `payload.origin` leak:
+the RX callbacks of node 50 and the Flywheel must release the multi-frame
+payload per the canard.h contract, otherwise the heap grows into the ISR
+stack and the node hangs inside the CAN RX interrupt. See
+`STM32F103_CentralProcessor/README.md` ("Implementation notes") for the full
+failure analysis.
