@@ -2,9 +2,33 @@
 
 This is usage of wide-known libcanard library for STM32 Blue Pill. The aim is connecting several sensors between each other.
 
+## Building everything (root Makefile)
+
+A single Makefile in the repository root drives all eight projects (each
+project keeps its own Makefile — the root one only dispatches, so per-project
+flags like `FILTER=`, `SN=`, `GETINFO_TIMEOUT=` still pass through):
+
+```sh
+make                 # build all eight projects (default target)
+make list            # alias -> directory -> node-ID
+make build-flywheel  # build one project
+make flash-central   # build + flash one project via ST-Link
+make getinfo-gnss    # yakut GetInfo on that project's node
+make clean           # remove every build/ directory
+make can0-up         # attach the WeAct adapter as can0 (sudo)
+make can0-down       # release it (sudo)
+make can0-status     # can0 + adapter state, no sudo
+make wireshark       # live capture (tshark for headless; FILTER='...')
+make help            # list all targets
+```
+
+Aliases: `template` `solar` `imu` `flywheel` `coil` `gnss` `temp` `central`;
+a full directory name works too (`make build-STM32F103_GNSS`).
+
 ## Spacecraft units
 
-Six node projects derived from the `STM32F103_CAN` template. Each is
+Six node projects derived from the `STM32F103_CAN` template, plus the central
+processor (below). Each is
 self-contained (own `build.sh`, `Makefile`, `can0.sh`, `yakut-env.sh`,
 `README.md`); the tools work exactly as in the template. All six publish
 `uavcan.node.Heartbeat.1.0` (subject 7509) at 1 Hz; the sensor units and the
@@ -61,3 +85,24 @@ Notes:
   behavior observed end-to-end, and the heartbeat health ladder reacts to the
   self-test verdict and the over-temperature fault. See
   `STM32F103_Flywheel/README.md`.
+
+## Central processor (node 50)
+
+`STM32F103_CentralProcessor` is the seventh project: the spacecraft central
+processor analog (OBC). It subscribes to **all** of the above — heartbeats on
+7509 plus subjects 7510–7516 — and streams a human-readable report to USART1
+(PA9 TX, 115200 8N1): `EVENT ...` lines on every change (unit online/offline,
+health transition, subject live/stale, flywheel state/self-test/over-temp)
+and a 1 Hz status block (fleet header + one line per unit with heartbeat age
+and its latest values). Its own heartbeat mirrors fleet health:
+`NOMINAL` = all six units heard within 5 s, `ADVISORY` = 3–5, `CAUTION` = 1–2,
+`WARNING` = 0, with the number of offline units in
+`vendor_specific_status_code`.
+
+Verified over CAN (no USB-TTL adapter on the bench — the UART text is covered
+by a host-side unit test of the formatting helpers, the aggregation by the
+health ladder reacting live to simulated units): a single `yakut pub` from a
+simulated unit flips node 50 from `WARNING/6` (vss = offline count) to
+`CAUTION/5`. Note that the SLCAN serial port serves **one process only** —
+the full six-process fleet simulation requires `sudo make can0-up`
+(socketcan), see `STM32F103_CentralProcessor/README.md`.
