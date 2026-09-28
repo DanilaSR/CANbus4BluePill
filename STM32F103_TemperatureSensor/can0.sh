@@ -1,6 +1,8 @@
 #!/bin/bash
-# Attach the WeAct USB2CAN adapter (/dev/ttyACM0, SLCAN firmware, 500 kbit/s)
-# to the kernel as CAN interface "can0" via slcand.
+# Attach the WeAct USB2CAN adapter (SLCAN firmware, 500 kbit/s) to the kernel
+# as CAN interface "can0" via slcand. The adapter is found by its USB product
+# name (USB2CANV1_ComPort); the ttyACM number changes between boots/plugs, so
+# it is NOT hardcoded.
 #
 #   sudo ./can0.sh up      # create + bring up can0 (needs root)
 #   sudo ./can0.sh down    # tear down can0 and release the serial port
@@ -10,13 +12,12 @@
 # Wireshark/tshark (capture on can0), yakut (transport "socketcan:can0",
 # see yakut-env.sh auto-detection), candump, etc.
 #
-# NOTE: slcand owns /dev/ttyACM0 while can0 is up, so transports that open
-# the serial port directly (yakut "slcan:/dev/ttyACM0", decode_heartbeat.py)
-# must NOT run in parallel -- use the socketcan transport instead.
+# NOTE: slcand owns the adapter's tty while can0 is up, so transports that
+# open the serial port directly (yakut "slcan:/dev/ttyACMx") must NOT run in
+# parallel -- use the socketcan transport instead.
 set -u
 
 IFACE=can0
-DEV=/dev/ttyACM0
 SPEED_CODE=6          # slcan speed code: S6 = 500000 bit/s
                       # (S0=10k S1=20k S2=50k S3=100k S4=125k S5=250k S6=500k S7=800k S8=1M)
 
@@ -26,14 +27,44 @@ need_root() {
     [ "$(id -u)" -eq 0 ] || die "run as root: sudo $0 $*"
 }
 
+# Locate the USB2CAN adapter: match the udev product name, fall back to the
+# only ttyACM node present (or /dev/ttyACM0 as a last resort).
+find_dev() {
+    local d model
+    for d in /dev/ttyACM*; do
+        [ -e "$d" ] || continue
+        model=$(udevadm info -q property -n "$d" 2>/dev/null | sed -n 's/^ID_MODEL=//p')
+        case "$model" in
+            *USB2CAN*) echo "$d"; return 0 ;;
+        esac
+    done
+    # Single ttyACM candidate (udevadm may be unavailable): take it.
+    set -- /dev/ttyACM*
+    if [ -e "$1" ] && [ $# -eq 1 ]; then
+        echo "$1"; return 0
+    fi
+    return 1
+}
+
 cmd_up() {
     need_root
     if ip link show "$IFACE" >/dev/null 2>&1; then
-        echo "can0 already exists:"
+        echo "$IFACE already exists:"
         ip -details link show "$IFACE" | sed -n '1,3p'
         exit 0
     fi
-    [ -e "$DEV" ] || die "$DEV not found (adapter unplugged?)"
+    # A slcand without its netdev is stale (e.g. left over from before the
+    # adapter was re-plugged and got a new ttyACM number) -- it only holds a
+    # dead device node, drop it so it cannot race the fresh instance.
+    local stale
+    stale=$(pgrep -f "^slcand .* ${IFACE}\$" || true)
+    if [ -n "$stale" ]; then
+        echo "killing stale slcand: $stale"
+        kill $stale 2>/dev/null || true
+        sleep 0.5
+    fi
+    DEV=$(find_dev) || die "USB2CAN adapter not found (adapter unplugged?)"
+    echo "adapter: $DEV"
     if fuser "$DEV" >/dev/null 2>&1; then
         echo "WARNING: $DEV is busy (yakut/decode_heartbeat.py running?);" >&2
         echo "         slcand will likely fail to open it." >&2
@@ -59,6 +90,7 @@ cmd_up() {
 
 cmd_down() {
     need_root
+    DEV=$(find_dev 2>/dev/null || true)
     if ip link show "$IFACE" >/dev/null 2>&1; then
         ip link set "$IFACE" down 2>/dev/null || true
     fi
@@ -84,17 +116,18 @@ cmd_down() {
 }
 
 cmd_status() {
+    DEV=$(find_dev 2>/dev/null || true)
     if ip link show "$IFACE" >/dev/null 2>&1; then
         ip -details link show "$IFACE"
         echo "-- slcand: $(pgrep -af "^slcand .* ${IFACE}\$" || echo none)"
     else
         echo "can0: down"
     fi
-    if [ -e "$DEV" ]; then
+    if [ -n "$DEV" ]; then
         echo "-- $DEV present; users:"
         fuser -v "$DEV" 2>&1 || echo "   (none visible to uid $(id -u); slcand runs as root)"
     else
-        echo "-- $DEV not present"
+        echo "-- USB2CAN adapter not found"
     fi
 }
 
