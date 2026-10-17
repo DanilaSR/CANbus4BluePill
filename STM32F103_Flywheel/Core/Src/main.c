@@ -200,10 +200,13 @@ static bool canard_tx_cb(canard_t* self,
    * Status while the frames were clearly on the wire).
    *
    * So: never queue a frame while another one is still in the hardware. With
-   * at most one frame in flight there is nothing to reorder -- NART makes
-   * every mailbox free itself after a single attempt (ACKed or not), so this
-   * cannot stall, and libcanard simply retries the same frame on the next
-   * canard_poll() (tx_eject_pending() only advances its cursor on success). */
+   * at most one frame in flight there is nothing to reorder -- and this is
+   * also what makes ARTE safe: a frame that lost arbitration holds its
+   * mailbox until it finally wins, so "all three free" is exactly "nothing
+   * of ours is on the wire". libcanard simply retries the same frame on the
+   * next canard_poll() (tx_eject_pending() only advances its cursor on
+   * success), and the transfer deadlines are 5 s, far longer than any
+   * arbitration wait. */
   if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) < 3U) {
     return false; /* frame still on the wire -> keep our place in line */
   }
@@ -277,10 +280,19 @@ static void MX_CAN1_Init(void) {
   hcan1.Init.TimeSeg1    = CAN_BS1_4TQ;
   hcan1.Init.TimeSeg2    = CAN_BS2_3TQ;
   hcan1.Init.TimeTriggeredMode   = DISABLE;
-  hcan1.Init.AutoBusOff          = DISABLE;
+  /* ABOM: a node that ends up bus-off (unACKed or shorted bus) must recover
+   * on its own -- otherwise it stays mute until someone resets it. */
+  hcan1.Init.AutoBusOff          = ENABLE;
   hcan1.Init.AutoWakeUp          = DISABLE;
-  hcan1.Init.AutoRetransmission  = DISABLE; /* one-shot: no bus flooding while
-                                             no ACKing node is awake yet */
+  /* ARTE: MANDATORY on a shared bus. Losing arbitration is NORMAL operation
+   * (any two nodes whose 1 Hz timers line up collide every single time), and
+   * only a retry-after-loss keeps the frame. With NART the loser ABORTS the
+   * frame silently -- no error frame, no error counter, it simply never
+   * reaches the wire -- so a node booted in phase with the others is
+   * invisible forever. The "bus flooding" NART used to avoid is bounded by
+   * ARTE itself: an unACKed frame drives the TX error counter up until the
+   * node goes bus-off, and ABOM above then recovers it automatically. */
+  hcan1.Init.AutoRetransmission  = ENABLE;
   hcan1.Init.ReceiveFifoLocked   = DISABLE;
   hcan1.Init.TransmitFifoPriority = DISABLE;
   if (HAL_CAN_Init(&hcan1) != HAL_OK) {
@@ -305,8 +317,8 @@ static void MX_CAN1_Init(void) {
 
 void HAL_CAN_MspInit(CAN_HandleTypeDef* hcan) {
   if (hcan->Instance == CAN1) {
-    /* RX FIFO0 IRQ drives CanardRxCallback(). No TX IRQ is needed: with
-       NART one-shot the mailbox frees itself (ACKed or not), and TX is
+    /* RX FIFO0 IRQ drives CanardRxCallback(). No TX IRQ is needed: a mailbox
+       frees itself once the frame is really on the wire, and TX progress is
        polled from the main loop via canard_poll(). */
     HAL_NVIC_SetPriority(USB_LP_CAN1_RX0_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USB_LP_CAN1_RX0_IRQn);
@@ -909,13 +921,13 @@ int main(void) {
     /* Answer queued service requests (the RX callback cannot send from IRQ). */
     process_requests();
 
-    /* Drain the TX pipeline. iface 0 is always "ready": with NART=1 every
-     * one-shot frame frees its mailbox on its own (ACKed or not), so a failed
-     * attempt can never wedge TX. canard_tx_cb() returns false while any
-     * mailbox is busy -- deliberately, so that only one frame is ever in the
-     * hardware and bxCAN cannot reorder the frames of a transfer (see the
-     * comment there). libcanard retries the same frame on the next
-     * canard_poll() (tx_eject_pending() advances its cursor only on success). */
+    /* Drain the TX pipeline. canard_tx_cb() returns false while a frame of
+     * ours is still in a mailbox -- deliberately, so that only one frame is
+     * ever in the hardware and bxCAN cannot reorder the frames of a transfer
+     * (see the comment there). With ARTE such a frame may sit in its mailbox
+     * for a few bit times while it waits to win arbitration; libcanard
+     * retries the same frame on the next canard_poll()
+     * (tx_eject_pending() advances its cursor only on success). */
     canard_poll(&canard_inst, 1U);
   }
 }

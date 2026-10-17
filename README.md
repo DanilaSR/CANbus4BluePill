@@ -25,6 +25,50 @@ make help            # list all targets
 Aliases: `template` `solar` `imu` `flywheel` `coil` `gnss` `temp` `central`;
 a full directory name works too (`make build-STM32F103_GNSS`).
 
+## Several nodes on one bus: auto-retransmission
+
+`AutoRetransmission` (bxCAN `NART`) and `AutoBusOff` (`ABOM`) are `ENABLE` in
+all eight projects, and `canard_tx_cb()` admits a frame only when all three TX
+mailboxes are free. Do not turn either back off on a shared bus.
+
+**The failure this fixes.** `NART` means "no automatic retransmission": a frame
+that loses arbitration is *aborted*, not retried. Arbitration loss is normal
+operation on a multi-node bus — any two nodes whose 1 Hz heartbeat timers line
+up collide, and the loser (the larger source node-ID) drops its frame on the
+floor. No error frame is emitted and no error counter moves, so the bus looks
+perfectly healthy in Wireshark while the loser is simply absent. Nodes booted
+from the same power supply stay in phase, so this is permanent, not
+intermittent; power them up at different times and it looks intermittent
+instead. A single node on the bus never loses arbitration, which is why every
+unit appeared to work on its own.
+
+`NART` was originally chosen to avoid "bus flooding" while no node was awake to
+ACK. `ABOM` is the right answer to that: a frame that goes unACKed drives the
+TX error counter up until the node goes bus-off, and `ABOM` then recovers it
+automatically, so the bus is bounded and self-healing.
+
+The "all three mailboxes free" guard in `canard_tx_cb()` is what keeps this
+safe. bxCAN picks between mailboxes by CAN ID, so two frames of one transfer
+in flight can go out in the wrong order and the receiver drops the whole
+transfer on the CRC check. With `ARTE` the guard also gives a precise meaning to
+"bus is free": a frame waiting to win arbitration still occupies its mailbox.
+Keeping at most one frame in flight preserves order, and libcanard retries the
+same frame on the next `canard_poll()` (`tx_eject_pending()` advances its cursor
+only on success). Transfer deadlines are 5 s, far longer than any arbitration
+wait. The guard is also why no TX interrupt is needed.
+
+**Verifying a multi-node bus.** Watch the source node-ID of subject 7509 in
+Wireshark, or:
+
+```sh
+timeout 60 candump -t z can0 | awk '{printf "%d\n", strtonum("0x" $3) % 128}' \
+  | sort | uniq -c        # one count per node-ID, all present, ~1 Hz each
+```
+
+Every expected node must appear. Also check `ip -s -d link show can0`: with the
+NART failure the counters stay at zero while nodes go missing, so a clean
+counter reading is *not* evidence that all nodes are alive.
+
 ## Spacecraft units
 
 Six node projects derived from the `STM32F103_CAN` template, plus the central

@@ -245,8 +245,9 @@ static bool canard_tx_cb(canard_t* self,
    * number, while HAL_CAN_AddTxMessage() picks the *first free* mailbox --
    * so a later frame of one transfer can overtake an earlier one and the
    * receiver drops the whole transfer on the CRC check. Never queue a frame
-   * while another is still on the wire; NART makes every mailbox free itself
-   * after a single attempt, so this cannot stall, and libcanard retries the
+   * while another is still on the wire; with ARTE a frame that lost
+   * arbitration holds its mailbox until it finally wins, so "all three free"
+   * is exactly "nothing of ours is on the wire", and libcanard retries the
    * same frame on the next canard_poll(). */
   if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) < 3U) {
     return false; /* frame still on the wire -> keep our place in line */
@@ -349,10 +350,19 @@ static void MX_CAN1_Init(void) {
   hcan1.Init.TimeSeg1    = CAN_BS1_4TQ;
   hcan1.Init.TimeSeg2    = CAN_BS2_3TQ;
   hcan1.Init.TimeTriggeredMode   = DISABLE;
-  hcan1.Init.AutoBusOff          = DISABLE;
+  /* ABOM: a node that ends up bus-off (unACKed or shorted bus) must recover
+   * on its own -- otherwise it stays mute until someone resets it. */
+  hcan1.Init.AutoBusOff          = ENABLE;
   hcan1.Init.AutoWakeUp          = DISABLE;
-  hcan1.Init.AutoRetransmission  = DISABLE; /* one-shot: no bus flooding while
-                                             no ACKing node is awake yet */
+  /* ARTE: MANDATORY on a shared bus. Losing arbitration is NORMAL operation
+   * (any two nodes whose 1 Hz timers line up collide every single time), and
+   * only a retry-after-loss keeps the frame. With NART the loser ABORTS the
+   * frame silently -- no error frame, no error counter, it simply never
+   * reaches the wire -- so a node booted in phase with the others is
+   * invisible forever. The "bus flooding" NART used to avoid is bounded by
+   * ARTE itself: an unACKed frame drives the TX error counter up until the
+   * node goes bus-off, and ABOM above then recovers it automatically. */
+  hcan1.Init.AutoRetransmission  = ENABLE;
   hcan1.Init.ReceiveFifoLocked   = DISABLE;
   hcan1.Init.TransmitFifoPriority = DISABLE;
   if (HAL_CAN_Init(&hcan1) != HAL_OK) {
@@ -377,8 +387,8 @@ static void MX_CAN1_Init(void) {
 
 void HAL_CAN_MspInit(CAN_HandleTypeDef* hcan) {
   if (hcan->Instance == CAN1) {
-    /* RX FIFO0 IRQ drives CanardRxCallback(). No TX IRQ is needed: with
-       NART one-shot the mailbox frees itself (ACKed or not), and TX is
+    /* RX FIFO0 IRQ drives CanardRxCallback(). No TX IRQ is needed: a mailbox
+       frees itself once the frame is really on the wire, and TX progress is
        polled from the main loop via canard_poll(). */
     HAL_NVIC_SetPriority(USB_LP_CAN1_RX0_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USB_LP_CAN1_RX0_IRQn);
@@ -1223,8 +1233,10 @@ int main(void) {
     }
 
     /* Drain the TX pipeline (RX0 IRQ masked: libcanard is not thread-safe).
-       iface 0 is always "ready": with NART=1 every one-shot frame frees its
-       mailbox on its own, and a rejected frame is retried on the next poll(). */
+       canard_tx_cb() returns false while a frame of ours is still in a
+       mailbox (it may be waiting to win arbitration), so only one frame is
+       ever in the hardware and a rejected frame is retried on the next
+       poll(). */
     canard_lock();
     canard_poll(&canard_inst, 1U);
     canard_unlock();

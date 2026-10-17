@@ -1,0 +1,11 @@
+CompileFlags:
+  Add:
+    - -std=c11
+    - -I/home/danila/Code/CANbus4BluePill/STM32F103_CAN/Core/Inc
+    - -I/home/danila/Code/CANbus4BluePill/STM32F103_CAN/lib
+    - -I/home/danila/Code/CANbus4BluePill/STM32F103_CAN/uavcan/DSDLtypes
+    - -I/home/danila/Code/CANbus4BluePill/STM32F103_CAN/Drivers/STM32F1xx_HAL_Driver/Inc
+    - -I/home/danila/Code/CANbus4BluePill/STM32F103_CAN/Drivers/CMSIS/Device/ST/STM32F1xx/Include
+    - -I/home/danila/Code/CANbus4BluePill/STM32F103_CAN/Drivers/CMSIS/Include
+    - -DUSE_HAL_DRIVER
+    - -DSTM32F103xB

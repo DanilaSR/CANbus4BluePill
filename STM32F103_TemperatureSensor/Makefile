@@ -25,7 +25,7 @@ IFACE ?= can0
 # ST-Link SWD. STM32_Programmer_CLI from PATH, CubeCLT as fallback.
 # SWD_FREQ: the default clock fails with this wiring ("Unable to get core
 # ID"); 100 kHz connects reliably. SWD_FREQ= uses the tool's default.
-SN          ?= 37FF71064E5734367F0A1B43
+# SN          ?= 37FF71064E5734367F0A1B43
 SWD_FREQ    ?= 100
 STM32_PROG  ?= $(or $(shell command -v STM32_Programmer_CLI 2>/dev/null),/home/danila/st/stm32cubeclt_1.18.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI)
 STLINK      := port=SWD $(if $(strip $(SN)),sn=$(SN)) $(if $(strip $(SWD_FREQ)),freq=$(SWD_FREQ))

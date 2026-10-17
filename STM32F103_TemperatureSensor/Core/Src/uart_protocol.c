@@ -31,9 +31,21 @@ void UART_Protocol_Init(UART_HandleTypeDef *huart)
   */
 void UART_Protocol_SendTemp(float temp)
 {
-  char line[24];
-  int len = snprintf(line, sizeof(line), "TEMP:%.1f\n", (double)temp);
-  HAL_UART_Transmit(s_huart, (uint8_t *)line, (uint16_t)len, 100U);
+  /* The newlib-nano build (see build.sh: -specs=nano.specs) has no float
+   * support in snprintf: "%f" emits nothing and snprintf returns a negative
+   * value, which used to be cast to 65535 and handed to HAL_UART_Transmit().
+   * Render the decimal point by hand from a fixed-point value instead --
+   * integer conversions (%lu) are supported and cost no extra flash. */
+  char    line[24];
+  int32_t deci = (int32_t)(temp * 10.0f + ((temp >= 0.0f) ? 0.5f : -0.5f));
+  uint32_t mag = (deci < 0) ? (uint32_t)(-deci) : (uint32_t)deci;
+  int     len = snprintf(line, sizeof(line), "TEMP:%s%lu.%lu\n",
+                         (deci < 0) ? "-" : "",
+                         (unsigned long)(mag / 10UL), (unsigned long)(mag % 10UL));
+  if ((len > 0) && ((size_t)len < sizeof(line)))
+  {
+    HAL_UART_Transmit(s_huart, (uint8_t *)line, (uint16_t)len, 100U);
+  }
 }
 
 /**
@@ -70,7 +82,10 @@ void UART_Protocol_SendAddr(uint16_t addr)
 {
   char line[24];
   int len = snprintf(line, sizeof(line), "ADDR:0x%02x\n", (unsigned)addr);
-  HAL_UART_Transmit(s_huart, (uint8_t *)line, (uint16_t)len, 100U);
+  if ((len > 0) && ((size_t)len < sizeof(line)))
+  {
+    HAL_UART_Transmit(s_huart, (uint8_t *)line, (uint16_t)len, 100U);
+  }
 }
 
 /**
@@ -80,7 +95,10 @@ void UART_Protocol_SendI2CError(uint32_t i2c_err)
 {
   char line[32];
   int len = snprintf(line, sizeof(line), "ERROR:0x%08lx\n", (unsigned long)i2c_err);
-  HAL_UART_Transmit(s_huart, (uint8_t *)line, (uint16_t)len, 100U);
+  if ((len > 0) && ((size_t)len < sizeof(line)))
+  {
+    HAL_UART_Transmit(s_huart, (uint8_t *)line, (uint16_t)len, 100U);
+  }
 }
 
 /**

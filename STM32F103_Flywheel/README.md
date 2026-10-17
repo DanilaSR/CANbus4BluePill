@@ -110,8 +110,15 @@ Heartbeat health: `NOMINAL` → `ADVISORY` (≥1 trip) → `CAUTION` (≥2) →
   `Status` used to be invisible to `yakut sub` while its frames were clearly
   on the wire). `canard_tx_cb()` therefore accepts a frame only when all
   three mailboxes are empty: at most one frame in flight, nothing to
-  reorder, and NART mode guarantees every mailbox frees itself after one
-  attempt. libcanard retries the same frame on the next `canard_poll()`.
+  reorder. This is also what makes auto-retransmission safe — with ARTE a
+  frame that lost arbitration holds its mailbox until it finally wins, so
+  "all three free" is exactly "nothing of ours is on the wire". libcanard
+  retries the same frame on the next `canard_poll()`.
+- **Auto-retransmission is mandatory on a shared bus** (see the root
+  README, "Several nodes on one bus"). Losing arbitration is normal
+  operation; with NART the loser silently aborts the frame — it never
+  reaches the wire, raises no error frame and no error counter — so nodes
+  whose 1 Hz timers happen to line up become mutually invisible.
 - **Self-test health coupling:** a FAILED self-test drives heartbeat health
   to `WARNING` (candidate for switching the spacecraft to the backup wheel).
 

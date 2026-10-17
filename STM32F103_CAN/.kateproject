@@ -1,0 +1,26 @@
+{
+    "name": "STM32F103_CAN",
+    "files": [
+        {
+            "directory": ".",
+            "recursive": 1
+        }
+    ],
+    "exclude_patterns": [ "^build($|/)" ],
+    "settings": {
+        "c_standard": "c11",
+        "cpp_standard": "c++11",
+        "defines": [
+            "USE_HAL_DRIVER",
+            "STM32F103xB"
+        ],
+        "includes": [
+            "Core/Inc",
+            "lib",
+            "uavcan/DSDLtypes",
+            "Drivers/STM32F1xx_HAL_Driver/Inc",
+            "Drivers/CMSIS/Device/ST/STM32F1xx/Include",
+            "Drivers/CMSIS/Include"
+        ]
+    }
+}
