@@ -5,6 +5,7 @@
 #include "main.h"
 
 #include <canard.h>
+#include <node_getinfo.h>
 #include <uavcan/node/Heartbeat_1_0.h>
 #include <reg/udral/physics/kinematics/geodetic/Point_0_1.h>
 
@@ -274,6 +275,19 @@ int main(void) {
      ID so other nodes can find it. */
   (void)canard_set_node_id(&canard_inst, CANARD_NODE_ID);
 
+  static const node_getinfo_config_t getinfo_cfg = {
+      .hardware_version_major = 1U,
+      .hardware_version_minor = 0U,
+      .software_version_major = 1U,
+      .software_version_minor = 0U,
+      .software_vcs_revision_id = 0U,
+      .name = "canbus4bluepill.gnss",
+      .unique_id = NULL,
+  };
+  if (!node_getinfo_init(&canard_inst, &getinfo_cfg)) {
+    Error_Handler();
+  }
+
   if (HAL_CAN_Start(&hcan1) != HAL_OK) {
     Error_Handler();
   }
@@ -349,11 +363,12 @@ int main(void) {
       last_data_us = now;
     }
 
-    /* Drain the TX pipeline. canard_tx_cb() returns false while a frame of
-     * ours is still in a mailbox (it may be waiting to win arbitration), so
-     * only one frame is ever in the hardware and bxCAN cannot reorder the
-     * frames of a transfer. libcanard retries the same frame on the next
-     * canard_poll() (see tx_eject_pending). */
+    /* Drain the TX pipeline. iface 0 is always "ready": with NART=1 every
+     * one-shot frame frees its mailbox on its own (ACKed or not), so a failed
+     * attempt can never wedge TX. canard_tx_cb() returns false only while all
+     * three mailboxes are momentarily busy, and libcanard retries the same
+     * frame on the next canard_poll() (see tx_eject_pending). */
+    node_getinfo_poll(&canard_inst);
     canard_poll(&canard_inst, 1U);
   }
 }

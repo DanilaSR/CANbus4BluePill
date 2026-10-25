@@ -83,15 +83,13 @@ tshark: can0-up
 
 # Send GetInfo.  yakut's transport (yakut-env.sh) is anonymous, but RPC needs
 # a local node-ID: append $(LOCAL_NODE_ID) to the CAN() transport expression.
-# NOTE: the current firmware only publishes Heartbeat and does not serve
-# GetInfo, so this times out -- the request still shows up on the bus
-# (Wireshark filter: cyphalcan11.service_id == 430).
+# The firmware serves uavcan.node.GetInfo.1.0 on service-ID 430.
 getinfo:
 	@. ./yakut-env.sh && \
 		YAKUT_TRANSPORT="$${YAKUT_TRANSPORT%,None)},$(LOCAL_NODE_ID))" \
 		yakut call $(NODE_ID) uavcan.node.GetInfo.1.0 -T $(GETINFO_TIMEOUT) +M \
 		|| { echo "getinfo: no response from node $(NODE_ID) (request was sent;"; \
-		     echo "  firmware has no GetInfo server yet -- see 'make wireshark')"; \
+		     echo "  check CAN wiring/power and see 'make wireshark')"; \
 		     exit 1; }
 
 help:

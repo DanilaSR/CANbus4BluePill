@@ -74,6 +74,7 @@ CORE_SRCS=(
     "${PROJECT_DIR}/Core/Src/mpu9250.c"
     "${PROJECT_DIR}/Core/Src/ssd1306.c"
     "${PROJECT_DIR}/lib/canard.c"
+    "${PROJECT_DIR}/lib/node_getinfo.c"
     "${PROJECT_DIR}/Drivers/CMSIS/Device/ST/STM32F1xx/Source/Templates/system_stm32f1xx.c"
 )
 

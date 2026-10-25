@@ -47,6 +47,7 @@
 #include "main.h"
 
 #include <canard.h>
+#include <node_getinfo.h>
 #include <spacecraft/flywheel/CreateTorque_1_0.h>
 #include <spacecraft/flywheel/SetSpeed_1_0.h>
 #include <spacecraft/flywheel/StartSelfTest_1_0.h>
@@ -817,6 +818,19 @@ int main(void) {
      ID so other nodes can find it. */
   (void)canard_set_node_id(&canard_inst, CANARD_NODE_ID);
 
+  static const node_getinfo_config_t getinfo_cfg = {
+      .hardware_version_major = 1U,
+      .hardware_version_minor = 0U,
+      .software_version_major = 1U,
+      .software_version_minor = 0U,
+      .software_vcs_revision_id = 0U,
+      .name = "canbus4bluepill.flywheel",
+      .unique_id = NULL,
+  };
+  if (!node_getinfo_init(&canard_inst, &getinfo_cfg)) {
+    Error_Handler();
+  }
+
   /* Service request subscriptions (one shared callback; the port-ID identifies
      the service). Extent covers the largest request; the transfer-ID timeout
      satisfies the deduplication requirement for unicast transfers. */
@@ -920,6 +934,7 @@ int main(void) {
 
     /* Answer queued service requests (the RX callback cannot send from IRQ). */
     process_requests();
+    node_getinfo_poll(&canard_inst);
 
     /* Drain the TX pipeline. canard_tx_cb() returns false while a frame of
      * ours is still in a mailbox -- deliberately, so that only one frame is

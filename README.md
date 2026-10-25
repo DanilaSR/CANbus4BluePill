@@ -90,6 +90,11 @@ units and the flywheel additionally publish their own DSDL type:
 | GNSS | `STM32F103_GNSS` | 55 | 7513 | `reg.udral.physics.kinematics.geodetic.Point.0.1` | 1 Hz |
 | Temperature sensor | `STM32F103_TemperatureSensor` | 56 | 7514 | `uavcan.si.sample.temperature.Scalar.1.0` | 1 Hz |
 
+All node projects, including the central processor and the `STM32F103_CAN`
+template, also serve `uavcan.node.GetInfo.1.0` (service 430) from the shared
+`lib/node_getinfo.c`: each reports its own name, hardware/software version and
+the 96-bit STM32 unique device ID, so `make getinfo-<name>` gets an answer.
+
 Notes:
 
 - Standard Cyphal types only: the C headers already ship with the shared

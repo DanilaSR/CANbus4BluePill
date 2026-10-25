@@ -35,6 +35,7 @@
 #include "main.h"
 
 #include <canard.h>
+#include <node_getinfo.h>
 #include <reg/udral/physics/kinematics/geodetic/Point_0_1.h>
 #include <spacecraft/flywheel/Status_1_0.h>
 #include <uavcan/node/Heartbeat_1_0.h>
@@ -1177,6 +1178,19 @@ int main(void) {
      seed each boot, which would make the source node-ID change between boots. */
   (void)canard_set_node_id(&canard_inst, CANARD_NODE_ID);
 
+  static const node_getinfo_config_t getinfo_cfg = {
+      .hardware_version_major = 1U,
+      .hardware_version_minor = 0U,
+      .software_version_major = 1U,
+      .software_version_minor = 0U,
+      .software_vcs_revision_id = 0U,
+      .name = "canbus4bluepill.central",
+      .unique_id = NULL,
+  };
+  if (!node_getinfo_init(&canard_inst, &getinfo_cfg)) {
+    Error_Handler();
+  }
+
   /* Subscriptions: extent per the type's declared extent, 5 s transfer-ID
      timeout for deduplication (same value the flywheel uses). All are set up
      before the RX IRQ is armed, so no locking is needed here. */
@@ -1238,6 +1252,7 @@ int main(void) {
        ever in the hardware and a rejected frame is retried on the next
        poll(). */
     canard_lock();
+    node_getinfo_poll(&canard_inst);
     canard_poll(&canard_inst, 1U);
     canard_unlock();
 
