@@ -8,6 +8,8 @@
 #include "main.h"
 #include "stlm75.h"
 #include "uart_protocol.h"
+#include "adcs_service.h"
+#include "firmware_service.h"
 
 #include <canard.h>
 #include <node_getinfo.h>
@@ -35,6 +37,11 @@ static canard_us_t                last_data_us;
 
 static uint32_t                   can_rx_count;
 static uint32_t                   can_tx_count;
+
+/* Latest STLM75 reading, cached so spacecraft.ADCS requests are answered
+   without opening another I2C transaction from the request path. */
+static float                      last_temp_c;
+static uint8_t                    last_temp_ok;
 
 /* ---------------------------------------------------------
  * Bare-metal heap for newlib malloc/free (CANard memory).
@@ -363,6 +370,16 @@ int main(void) {
     Error_Handler();
   }
 
+  /* Serve spacecraft.ADCS.1.0 on service-ID 370 (ground-station SUDN screen). */
+  if (!adcs_service_init(&canard_inst)) {
+    Error_Handler();
+  }
+
+  /* Serve spacecraft.UpdateFirmware.1.0 on service-ID 373 (firmware upload). */
+  if (!firmware_service_init(&canard_inst)) {
+    Error_Handler();
+  }
+
   if (HAL_CAN_Start(&hcan1) != HAL_OK) {
     Error_Handler();
   }
@@ -441,6 +458,9 @@ int main(void) {
 
       float temp_c = 0.0f;
       if (sensor_ok && (STLM75_ReadTemp(&hi2c1, stlm75_addr, &temp_c) == HAL_OK)) {
+        last_temp_c  = temp_c;
+        last_temp_ok = 1U;
+
         uavcan_si_sample_temperature_Scalar_1_0 sample = {0};
         sample.kelvin = temp_c + 273.15f;
 
@@ -460,6 +480,7 @@ int main(void) {
       } else if (sensor_ok) {
         /* Sensor was found at boot but stopped ACKing: surface the I2C HAL
            error code on the UART for diagnosis. Nothing goes on the bus. */
+        last_temp_ok = 0U;
         UART_Protocol_SendI2CError(hi2c1.ErrorCode);
       }
     }
@@ -470,7 +491,20 @@ int main(void) {
      * three mailboxes are momentarily busy, and libcanard retries the same
      * frame on the next canard_poll() (see tx_eject_pending). */
     node_getinfo_poll(&canard_inst);
+    /* Answer any queued spacecraft.ADCS temperature requests. */
+    adcs_service_poll(&canard_inst, &last_temp_c, 1U, last_temp_ok != 0U);
+    /* Handle one queued spacecraft.UpdateFirmware command (flash work is done here,
+       outside the CAN IRQ). */
+    firmware_service_poll(&canard_inst);
     canard_poll(&canard_inst, 1U);
+
+    /* A JUMP_TO_START response must reach the wire before we abandon CAN and
+       hand control to the new image. */
+    if (firmware_service_should_jump()) {
+      canard_poll(&canard_inst, 1U);
+      HAL_Delay(50U);
+      firmware_service_jump_now();
+    }
   }
 }
 

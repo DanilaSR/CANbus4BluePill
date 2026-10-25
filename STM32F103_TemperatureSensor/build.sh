@@ -72,6 +72,8 @@ CORE_SRCS=(
     "${PROJECT_DIR}/Core/Src/stm32f1xx_it.c"
     "${PROJECT_DIR}/Core/Src/stlm75.c"
     "${PROJECT_DIR}/Core/Src/uart_protocol.c"
+    "${PROJECT_DIR}/Core/Src/adcs_service.c"
+    "${PROJECT_DIR}/Core/Src/firmware_service.c"
     "${PROJECT_DIR}/lib/canard.c"
     "${PROJECT_DIR}/lib/node_getinfo.c"
     "${PROJECT_DIR}/Drivers/CMSIS/Device/ST/STM32F1xx/Source/Templates/system_stm32f1xx.c"
