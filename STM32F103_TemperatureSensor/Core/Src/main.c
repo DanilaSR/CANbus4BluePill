@@ -10,6 +10,7 @@
 #include "uart_protocol.h"
 
 #include <canard.h>
+#include <node_getinfo.h>
 #include <uavcan/node/Heartbeat_1_0.h>
 #include <uavcan/si/sample/temperature/Scalar_1_0.h>
 
@@ -330,6 +331,19 @@ int main(void) {
      ID so other nodes can find it. */
   (void)canard_set_node_id(&canard_inst, CANARD_NODE_ID);
 
+  static const node_getinfo_config_t getinfo_cfg = {
+      .hardware_version_major = 1U,
+      .hardware_version_minor = 0U,
+      .software_version_major = 1U,
+      .software_version_minor = 0U,
+      .software_vcs_revision_id = 0U,
+      .name = "canbus4bluepill.temperature",
+      .unique_id = NULL,
+  };
+  if (!node_getinfo_init(&canard_inst, &getinfo_cfg)) {
+    Error_Handler();
+  }
+
   if (HAL_CAN_Start(&hcan1) != HAL_OK) {
     Error_Handler();
   }
@@ -436,6 +450,7 @@ int main(void) {
      * attempt can never wedge TX. canard_tx_cb() returns false only while all
      * three mailboxes are momentarily busy, and libcanard retries the same
      * frame on the next canard_poll() (see tx_eject_pending). */
+    node_getinfo_poll(&canard_inst);
     canard_poll(&canard_inst, 1U);
   }
 }

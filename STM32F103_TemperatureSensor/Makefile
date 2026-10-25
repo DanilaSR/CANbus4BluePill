@@ -25,7 +25,7 @@ IFACE ?= can0
 # ST-Link SWD. STM32_Programmer_CLI from PATH, CubeCLT as fallback.
 # SWD_FREQ: the default clock fails with this wiring ("Unable to get core
 # ID"); 100 kHz connects reliably. SWD_FREQ= uses the tool's default.
-SN          ?= 37FF71064E5734367F0A1B43
+# SN          ?= 37FF71064E5734367F0A1B43
 SWD_FREQ    ?= 100
 STM32_PROG  ?= $(or $(shell command -v STM32_Programmer_CLI 2>/dev/null),/home/danila/st/stm32cubeclt_1.18.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI)
 STLINK      := port=SWD $(if $(strip $(SN)),sn=$(SN)) $(if $(strip $(SWD_FREQ)),freq=$(SWD_FREQ))
@@ -83,15 +83,13 @@ tshark: can0-up
 
 # Send GetInfo.  yakut's transport (yakut-env.sh) is anonymous, but RPC needs
 # a local node-ID: append $(LOCAL_NODE_ID) to the CAN() transport expression.
-# NOTE: the current firmware only publishes Heartbeat and does not serve
-# GetInfo, so this times out -- the request still shows up on the bus
-# (Wireshark filter: cyphalcan11.service_id == 430).
+# The firmware serves uavcan.node.GetInfo.1.0 on service-ID 430.
 getinfo:
 	@. ./yakut-env.sh && \
 		YAKUT_TRANSPORT="$${YAKUT_TRANSPORT%,None)},$(LOCAL_NODE_ID))" \
 		yakut call $(NODE_ID) uavcan.node.GetInfo.1.0 -T $(GETINFO_TIMEOUT) +M \
 		|| { echo "getinfo: no response from node $(NODE_ID) (request was sent;"; \
-		     echo "  firmware has no GetInfo server yet -- see 'make wireshark')"; \
+		     echo "  check CAN wiring/power and see 'make wireshark')"; \
 		     exit 1; }
 
 help:
